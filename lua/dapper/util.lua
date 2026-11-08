@@ -1,0 +1,295 @@
+local M = {}
+
+local api = vim.api
+
+function M.notify(msg, level)
+  vim.notify(msg, level or vim.log.levels.INFO, { title = "dapper" })
+end
+
+local function is_code(win)
+  return api.nvim_win_get_config(win).relative == ""
+    and vim.bo[api.nvim_win_get_buf(win)].buftype == ""
+    and not vim.wo[win].winfixbuf
+end
+
+-- the tab pages to look for code in: the current one, unless it is one of dapper's (Memory,
+-- Disassembly: then the others, in order)
+local function code_tabs()
+  if not vim.t.dapper_view then
+    return { api.nvim_get_current_tabpage() }
+  end
+  return vim.tbl_filter(function(tab)
+    return not vim.t[tab].dapper_view
+  end, api.nvim_list_tabpages())
+end
+
+--- a window that shows a file (not a pane, a terminal, ...): in the current tab page (the
+--- previous window first), or from one of dapper's tab pages, in the others
+function M.code_window()
+  if not vim.t.dapper_view then
+    local prev = vim.fn.win_getid(vim.fn.winnr("#"))
+    if prev ~= 0 and is_code(prev) then
+      return prev
+    end
+  end
+  for _, tab in ipairs(code_tabs()) do
+    local win = vim.tbl_filter(is_code, api.nvim_tabpage_list_wins(tab))[1]
+    if win then
+      return win
+    end
+  end
+end
+
+--- the buffer of a DAP source (a path, or a source the adapter sends by reference), or nil
+function M.source_buf(source)
+  if not source then
+    return nil
+  end
+  if source.path and vim.uv.fs_stat(source.path) then
+    local buf = vim.fn.bufadd(source.path)
+    vim.fn.bufload(buf)
+    return buf
+  end
+  for _, buf in ipairs(api.nvim_list_bufs()) do -- nvim-dap's dap-src:// buffers
+    if source.path and api.nvim_buf_get_name(buf):find(source.path, 1, true) then
+      return buf
+    end
+  end
+end
+
+--- Shows line (and column) of buf in a window: the one showing it, else the code window (made
+--- if there is none). focus: also move the cursor there.
+function M.show_location(buf, line, column, focus)
+  local win
+  for _, tab in ipairs(code_tabs()) do
+    win = win
+      or vim.tbl_filter(function(w)
+        return api.nvim_win_get_buf(w) == buf
+      end, api.nvim_tabpage_list_wins(tab))[1]
+  end
+  if not win then
+    win = M.code_window()
+    if win then
+      api.nvim_win_set_buf(win, buf)
+    else -- no window for code: a new one (never in a tab page of dapper's)
+      local cur = api.nvim_get_current_win()
+      if vim.t.dapper_view then
+        vim.cmd("tabnew")
+        win = api.nvim_get_current_win()
+      else
+        vim.cmd("topleft split")
+        win = api.nvim_get_current_win()
+      end
+      -- (a split copies the window's options: a pane's would hide the signs, show its tabs, ...;
+      -- a code window's are taken instead, from any tab page, else Neovim's defaults)
+      local model
+      for _, tab in ipairs(api.nvim_list_tabpages()) do
+        model = model
+          or vim.tbl_filter(function(w)
+            return w ~= win and is_code(w) and not vim.t[tab].dapper_view
+          end, api.nvim_tabpage_list_wins(tab))[1]
+      end
+      for _, option in ipairs({
+        "winbar",
+        "signcolumn",
+        "number",
+        "relativenumber",
+        "foldcolumn",
+        "cursorline",
+        "wrap",
+        "list",
+        "spell",
+        "winfixwidth",
+        "winfixheight",
+        "winfixbuf",
+      }) do
+        pcall(function()
+          vim.wo[win][option] = model and vim.wo[model][option] or api.nvim_get_option_info2(option, {}).default
+        end)
+      end
+      vim.wo[win].winfixbuf = false
+      api.nvim_win_set_buf(win, buf)
+      api.nvim_set_current_win(cur)
+    end
+  end
+  pcall(api.nvim_win_set_cursor, win, { line, math.max((column or 1) - 1, 0) })
+  api.nvim_win_call(win, function()
+    vim.cmd("normal! zv")
+  end)
+  if focus then
+    api.nvim_set_current_win(win) -- (in another tab page: goes there)
+  end
+  return win
+end
+
+--- the expression to act on: the visual selection, else the one under the cursor
+function M.expression()
+  local mode = api.nvim_get_mode().mode
+  if mode:match("^[vV\22]") then
+    local lines = vim.fn.getregion(vim.fn.getpos("v"), vim.fn.getpos("."), { type = mode })
+    api.nvim_feedkeys(api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+    return vim.trim(table.concat(lines, "\n"))
+  end
+  return vim.fn.expand("<cexpr>")
+end
+
+--- Line `lnum` (1-based) of buffer `buf`, without its indent, as chunks highlighted as in the code
+--- (treesitter, if the buffer has a parser; else plain).
+function M.code_chunks(buf, lnum)
+  local line = api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1] or ""
+  local indent = #(line:match("^%s*"))
+  local text = line:sub(indent + 1)
+  local ok, parser = pcall(vim.treesitter.get_parser, buf)
+  if not (ok and parser) or text == "" then
+    return { { text } }
+  end
+  local hl_at = {} -- byte column of the line -> highlight group
+  parser:parse({ lnum - 1, lnum })
+  parser:for_each_tree(function(tree, ltree)
+    local query = vim.treesitter.query.get(ltree:lang(), "highlights")
+    if not query then
+      return
+    end
+    for id, node in query:iter_captures(tree:root(), buf, lnum - 1, lnum) do
+      local name = query.captures[id]
+      if name and not name:find("^_") and name ~= "spell" and name ~= "nospell" then
+        local srow, scol, erow, ecol = node:range()
+        local from = srow < lnum - 1 and 0 or scol
+        local to = erow > lnum - 1 and #line or ecol
+        for col = from, to - 1 do
+          hl_at[col] = "@" .. name .. "." .. ltree:lang() -- (later captures win, as in the code)
+        end
+      end
+    end
+  end)
+  local chunks, start = {}, indent
+  for col = indent + 1, #line do
+    if col == #line or hl_at[col] ~= hl_at[start] then
+      table.insert(chunks, { line:sub(start + 1, col), hl_at[start] })
+      start = col
+    end
+  end
+  return chunks
+end
+
+--- runs fn in a coroutine, reporting its errors (nvim-dap's requests then read as plain calls)
+function M.run(fn, ...)
+  local co = coroutine.create(fn)
+  local ok, err = coroutine.resume(co, ...)
+  if not ok then
+    M.notify(debug.traceback(co, tostring(err)), vim.log.levels.ERROR)
+  end
+end
+
+--- vim.ui.input, waited for (in a coroutine)
+function M.input(opts)
+  local co = assert(coroutine.running(), "input outside a coroutine")
+  local result, done, waiting
+  vim.ui.input(opts, function(value)
+    result, done = value, true
+    if waiting then
+      coroutine.resume(co)
+    end
+  end)
+  if not done then
+    waiting = true
+    coroutine.yield()
+  end
+  return result
+end
+
+-- the debugger's messages that have a fix, and the fix
+local FIXES = {
+  { "No symbol table is loaded", "no debug information: build the program with -g" },
+  { 'No symbol "[^"]*" in current context', "not in the selected frame: select another in the Call stack" },
+  { "Cannot access memory at address", "memory the program cannot read" },
+  { "The program is not being run", "start the program first" },
+  { "No frame selected", "the program has to be stopped" },
+}
+
+--- the debugger's message `msg`, with its fix if there is one known
+function M.explain(msg)
+  msg = tostring(msg or "")
+  for _, fix in ipairs(FIXES) do
+    if msg:find(fix[1]) then
+      return msg:gsub("%.?%s*$", "") .. " (" .. fix[2] .. ")"
+    end
+  end
+  return msg
+end
+
+--- a request to the session, waited for (in a coroutine): result, or nil and the error
+function M.request(session, command, args)
+  local err, result = session:request(command, args)
+  if err then
+    return nil, M.explain(err.message or tostring(err))
+  end
+  return result
+end
+
+--- Several requests ({ command, args } each), sent at once and waited for together (in a
+--- coroutine): their results, in order (nil for one that failed).
+function M.requests(session, list)
+  local co = assert(coroutine.running(), "requests outside a coroutine")
+  local results, pending, waiting = {}, #list, false
+  if pending == 0 then
+    return results
+  end
+  for i, item in ipairs(list) do
+    session:request(item[1], item[2], function(err, result)
+      results[i] = not err and result or nil
+      pending = pending - 1
+      if pending == 0 and waiting then
+        coroutine.resume(co)
+      end
+    end)
+  end
+  if pending > 0 then
+    waiting = true
+    coroutine.yield()
+  end
+  return results
+end
+
+-- What does not change while the program is stopped (the scopes of a frame, the variables of a
+-- reference), asked for once per stop and shared by the views. Forgotten when the program runs
+-- again or a value is set.
+local cache = {}
+
+function M.forget()
+  cache = {}
+  if package.loaded["dapper.complete"] then
+    require("dapper.complete").forget()
+  end
+end
+
+--- M.request, remembered until M.forget()
+function M.cached(session, command, args)
+  local key = session.id .. command .. vim.json.encode(args)
+  local hit = cache[key]
+  if hit then
+    if hit.waiting then -- (asked for by another view, not answered yet: wait for that answer)
+      local co = assert(coroutine.running(), "cached outside a coroutine")
+      table.insert(hit.waiting, co)
+      return coroutine.yield()
+    end
+    return hit.result, hit.err
+  end
+  hit = { waiting = {} }
+  cache[key] = hit
+  local result, err = M.request(session, command, args)
+  if command == "variables" and result then -- (their names: for completion)
+    require("dapper.complete").note(result.variables)
+  end
+  local waiting = hit.waiting
+  hit.result, hit.err, hit.waiting = result, err, nil
+  if err then
+    cache[key] = nil -- (an error is asked again)
+  end
+  for _, co in ipairs(waiting) do
+    coroutine.resume(co, result, err)
+  end
+  return result, err
+end
+
+return M

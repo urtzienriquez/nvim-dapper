@@ -1,0 +1,35 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Neovim ${{ matrix.neovim }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        neovim:
+          - stable
+          - nightly
+
+    steps:
+      - name: Checkout nvim-dapper
+        uses: actions/checkout@v4
+
+      - name: Install Neovim (${{ matrix.neovim }})
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim }}
+
+      - name: Install gcc and gdb (for the debugging tests)
+        run: sudo apt-get update && sudo apt-get install -y gcc gdb
+
+      - name: Run test suite
+        run: scripts/test.sh

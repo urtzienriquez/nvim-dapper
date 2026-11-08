@@ -1,0 +1,300 @@
+*dapper.txt*  A UI for nvim-dap, made of plain windows
+
+Author:  Urtzi Enriquez-Urzelai
+License: GPL-3.0
+
+==============================================================================
+INTRODUCTION                                                          *dapper*
+
+nvim-dapper shows what nvim-dap knows in a column of panes: windows that each
+show one view, with the views as tabs in the window bar: the view shown by
+its name, the others by the key that shows them (Watches  S  E  B  C ...).
+Any pane shows any view, and panes split and close like windows.
+
+Getting started: >lua
+  require("dapper").setup()  -- optional: the defaults apply on first use
+  vim.keymap.set("n", "<leader>dd", "<Cmd>Dapper<CR>")
+<
+Start debugging with nvim-dap as usual: the panes open, and close when it
+ends, opening again as they were left. g? in any pane lists its keys;
+|:Dapper| alone lists everything that can be done now. For gdb there is
+nothing more to set up (|dapper-gdb|). |:checkhealth| dapper checks it all,
+with the fix for what is missing.
+
+When the program stops, its line is shown in the code, but the cursor stays
+where it was (|dapper-keep_cursor|).
+
+==============================================================================
+VIEWS                                                           *dapper-views*
+
+  W  Watches      Expressions, evaluated at each stop, in the selected frame;
+                  kept per project (|dapper-kept|). A new one opens expanded;
+                  a pointer shows its address, and what it points to below
+                  it (char pointers too). Also the debugger's own commands
+                  (|dapper-commands|).
+  S  Scopes       The variables of the selected frame (the registers
+                  collapsed).
+  E  Exceptions   When to stop on exceptions (the debugger's filters).
+  B  Breakpoints  All breakpoints (|dapper-breakpoints|), lines with their
+                  code highlighted as in the file.
+  C  Call stack   The frames of the stopped thread; the selected one marked.
+  T  Threads      Every thread, with the frames of the stopped ones.
+  K  Sessions     The programs being debugged, and their children.
+  R  REPL         nvim-dap's REPL (|dap.repl.open()|).
+  O  Program I/O  The program's terminal. Type in it (|Terminal-mode|) to give
+                  the program input. Kept after the session, to read it.
+
+Variables show as `name = value  type`, the values of siblings lined up.
+A struct or array shows what it holds in one line, also collapsed (gdb gives
+them no value of their own): `{mass = 20, id = 7, pos = {…}}`, `{1, 2, 3}`.
+Values that changed since the last stop are highlighted (|hl-DapperChanged|).
+
+                                                             *dapper-commands*
+Watches also take the debugger's commands, as typed in its REPL, and show
+their output at each stop. With gdb:
+
+  p/t n          n in binary (any format: p/x, p/d, p/c, ...)
+  /t n           Short for print/t n.
+  x/8xb &n       8 bytes of memory at n, in hex.
+  info frame     Also: info registers, info locals, ptype ..., whatis ...
+
+A command is a word followed by / (p/x, x/8xb, print/t), or one of print,
+output, info, ptype, whatis followed by a space. So write a division with
+spaces: `x / 2` (`x/2` is gdb's x command).
+
+==============================================================================
+BREAKPOINTS                                               *dapper-breakpoints*
+
+  On a line           nvim-dap's own (toggle_breakpoint). With a condition,
+                      or as a log point: |dapper.conditional_breakpoint()|,
+                      |dapper.log_point()|.
+  On a function       :Dapper break {name} (it completes the program's
+                      functions). Kept per project.
+  When a value        x on a variable in Watches, Scopes or the hover float,
+  changes             or :Dapper break-change [{expr}]: the program stops
+                      right after something changes it. With gdb: watch
+                      -location (it also catches changes after the function
+                      returned). For the session only.
+  On an instruction   x in Disassembly. Kept from session to session.
+
+All are listed in the Breakpoints view; d deletes one there.
+
+==============================================================================
+PINS                                                             *dapper-pins*
+
+:Dapper pin [{expr}] pins {expr} (default: the expression under the cursor,
+or the selection) to the cursor's line: its value is shown at the end of that
+line at each stop. The same again removes it. Pins move with their line when
+the file is edited, and are kept per project.
+
+==============================================================================
+MEMORY AND DISASSEMBLY                   *dapper-memory* *dapper-disassembly*
+
+Each opens in a tab page of its own; the code's tab page stays as it is. In
+both: g? lists the keys; :q closes the tab page, as any window.
+
+:Dapper memory [{expr}]
+    The bytes at an address, 16 a row, in hex and as text. Without an {expr}
+    (and no variable under the cursor), the selected frame's variables,
+    followed at each stop and when another frame is selected. Each variable's
+    bytes have a colour, each frame's part of the stack is labelled with its
+    function (⟨main⟩), and the bytes that changed since the last stop are
+    highlighted. The window bar is the columns' header.
+
+    The cursor: its column lights up in the header, the byte's twin (hex or
+    text) too, and its row says what is under it: the variable, in its colour
+    ("n = 21  int"), down to the member of a struct or array
+    ("frogs[1].temperature_C = 25.5  double"), else what the bytes from there
+    read as: u8 u16 u32 u64
+    (signed, in parentheses, where it differs), f32 f64.
+
+    f     Find: go to an address (0x...), a variable (its bytes) or an
+          expression (*p: what p points to; $sp), with completion; followed
+          at each stop; nothing: back to the frame's variables. Vim's /
+          searches the rows shown (c8 01 in the hex, or the text column).
+    r     Write bytes at the cursor, in hex: c8, or c8 01 ff.
+    [[ ]] A page back / forward.
+    .     Back to what is followed.
+
+:Dapper disassembly [{expr}]
+    The instructions of a function, from its start, with its source lines
+    between them; the current instruction marked →. Without an {expr}: from
+    a file, the cursor's line (its instructions highlighted, the cursor on the
+    first); else the current instruction, followed at each stop. While the
+    cursor is in it, stepping goes one instruction at a time (nvim-dap's
+    stepping granularity).
+
+    <CR>  On an instruction: show its source line (and highlight that line's
+          instructions); on a source line: go to it.
+    x     Toggle a breakpoint on the instruction (●).
+    f     Find: go to a function (with completion), an address or an
+          expression.
+    .     Back to the current instruction.
+
+==============================================================================
+KEYS                                                             *dapper-keys*
+
+In every pane (the REPL and Program I/O too; in a window that is no pane,
+those buffers keep Vim's own keys):
+
+  W S E B C T K R O   Show that view in this pane.
+  ]v  [v              The next / previous view.
+  <C-w>s  <C-w>v      Split the pane: a new one below / to the side. It shows
+                      the first view no pane shows. (:split and :vsplit in a
+                      pane do the same; the column keeps its width.)
+  :q                  Close the pane, as any window; they open again as they
+                      were left.
+  g?                  The keys (also in the tab pages and in the hover
+                      float). q closes that list.
+
+The same key does the same in every view:
+
+  <CR>  The main action: expand, select the frame, go to it, toggle.
+  d     Delete (a watch, a breakpoint).
+  x     Break on it: when the value changes (a variable); on the instruction
+        (Disassembly).
+  m     Its memory (a variable: Watches, Scopes, hover).
+  D     Its disassembly (a frame: Call stack, Threads).
+  s c   Set / copy a value.
+  f     Find (Memory, Disassembly); filter the frames (Threads).
+
+And:
+  Watches        i a: add an expression above / below; e: edit it.
+  Values         [[: go to the parent.
+  Breakpoints    p: show it, the cursor staying.
+  Call stack     o: select the frame and go to its line; t: hide or show
+                 the frames of no interest (library code).
+  Threads        F: invert the filter.
+
+==============================================================================
+COMMANDS                                                             *:Dapper*
+
+:Dapper                 The actions available now, to pick from, with the
+                        keys you mapped to them (to learn them).
+:Dapper toggle | open | close
+                        The panes.
+:Dapper show {view}     Show {view} in a pane (opening them).
+:Dapper watch [{expr}]  Watch {expr}; default: the selection, or the
+                        expression under the cursor.
+:Dapper hover [{expr}]  The value of {expr} in a float, as a tree. Called
+                        again, the cursor goes into the float (to expand
+                        values; q closes it), as Neovim's own hover; it
+                        closes when the cursor moves on.
+:Dapper memory [{expr}]       See |dapper-memory|.
+:Dapper disassembly [{expr}]  See |dapper-disassembly|.
+:Dapper break {function}      Break on {function} (or no more).
+:Dapper break-change [{expr}] Break when {expr} changes (or no more).
+:Dapper condition             See |dapper.conditional_breakpoint()|.
+:Dapper log                   See |dapper.log_point()|.
+:Dapper pin [{expr}]          See |dapper-pins|.
+:Dapper jump            Set next statement: the program goes on from the
+                        cursor's line; the lines between are not run.
+:Dapper virtual-text    Turn the values in the code on or off.
+
+The commands complete: views, the program's functions, and expressions: the
+selected frame's variables, the members after . or ->, and the names of the
+file you are in (so a condition can be completed before the program runs).
+No keys are mapped; for example: >lua
+  vim.keymap.set("n", "<leader>dd", "<Cmd>Dapper<CR>")
+  vim.keymap.set("n", "<leader>dv", "<Cmd>Dapper toggle<CR>")
+  vim.keymap.set({ "n", "x" }, "<leader>dw", "<Cmd>Dapper watch<CR>")
+  vim.keymap.set({ "n", "x" }, "<leader>dk", "<Cmd>Dapper hover<CR>")
+<
+                                             *dapper.conditional_breakpoint()*
+require("dapper").conditional_breakpoint()
+    A breakpoint on the cursor's line with a condition, asked for with
+    completion (the line's own condition offered to edit). <Esc>, or nothing
+    typed: no breakpoint.
+                                                          *dapper.log_point()*
+require("dapper").log_point()
+    A log point on the cursor's line: a message printed in the REPL instead
+    of stopping, with the values of the expressions in {} ("n is {n}").
+    <Esc>, or nothing typed: none.
+                                                           *dapper.complete()*
+The same completion, for prompts of your own: >lua
+  vim.fn.input({ prompt = "Condition: ",
+    completion = "customlist,v:lua.require'dapper'.complete" })
+<
+                                                             *dapper.status()*
+require("dapper").status() says what the debugger is doing, for a status
+line: "⏸ stats.c:42 maximum", "▶ running", "" when not debugging. >lua
+  vim.o.statusline = "%f %= %{v:lua.require'dapper'.status()}"
+<
+==============================================================================
+SETUP                                                           *dapper-setup*
+
+require("dapper").setup({opts})                               *dapper.setup()*
+    Optional: without it, the defaults apply on first use. Calling it again
+    applies the new options, and the panes open as its `layout` says (signs
+    already defined stay defined).
+
+    position     "right" (default), "left" or "below".
+    size         Of the column: a fraction of the screen (0.4), or columns
+                 (lines, "below").
+    layout       The panes it opens with: a list of { view = ..., split =
+                 "below"|"right" }, each split from the one before it.
+                 Default: Watches, and the call stack below it. After that,
+                 the panes open as they were left.
+    views        The views, in the order of the tabs.
+    auto_open    Open with a debug session (true).
+    auto_close   Close when it ends (true).
+    follow_tab   Move the panes to the tab you enter, while debugging (false).
+                                                         *dapper-keep_cursor*
+    keep_cursor  When the program stops, show its line (in the window showing
+                 that file, else in a code window) without moving the cursor
+                 there (true). nvim-dap's own way moves it.
+    signs        Signs for breakpoints and the stop: ● ◆ ◉ → ✗ (true).
+    virtual_text The values of the variables of the selected frame, at the
+                 end of the lines where they appear (false). :Dapper
+                 virtual-text turns them on or off for a while.
+    controls     Buttons in the panes' bar, for the mouse: continue, step
+                 over, into, out, restart, stop (false).
+    icons        { collapsed, expanded, enabled, disabled, current }.
+    memory       { columns = 16, rows = 64 }: bytes a row, rows shown.
+    disassembly  { instructions = 100, bytes = false }: instructions shown
+                 (more in a long function), and whether their bytes are too.
+
+                                                                 *dapper-kept*
+The watches, pins and function breakpoints of each project (its git root,
+else the working directory) are kept in stdpath("data")/dapper.json.
+
+==============================================================================
+GDB                                                               *dapper-gdb*
+
+gdb 14 and later speak DAP. If nvim-dap has no gdb adapter, setup() gives it
+dapper's.
+
+require("dapper").gdb([{args}])                                 *dapper.gdb()*
+    An nvim-dap adapter for gdb, whose program reads and writes the "Program
+    I/O" terminal (gdb's DAP gives programs no terminal: scanf() would read
+    nothing). {args} are gdb's arguments after `--interpreter=dap` (default:
+    `set print pretty on`). >lua
+      require("dap").adapters.gdb = require("dapper").gdb()
+<
+Debuggers that run the program in a terminal themselves (runInTerminal:
+debugpy, codelldb, ...) get it in "Program I/O" too.
+
+gdb answers the breakpoints set before the program loads ("pending") without
+their line, and nvim-dap then marks all but one breakpoint of a file as
+rejected. dapper fills the lines in.
+
+==============================================================================
+HIGHLIGHTS                                                 *dapper-highlights*
+
+Each links to one of Neovim's own groups, so it follows the colorscheme:
+
+  DapperTab DapperTabSelected DapperTabFill   TabLine TabLineSel TabLineFill
+  DapperTitle                                 Title
+  DapperName  DapperType  DapperValue         Identifier Comment Normal
+                                                            *hl-DapperChanged*
+  DapperChanged                               DiagnosticVirtualTextWarn
+  DapperMuted  DapperError  DapperHint        Comment DiagnosticError Comment
+  DapperFile  DapperLine                      Directory LineNr
+  DapperCurrent  DapperEnabled  DapperDisabled  DiagnosticOk DiagnosticOk Comment
+  DapperVirtualText  DapperControls           Comment TabLine
+  DapperMemoryCursor                          Search
+  DapperPc  DapperSync                        Visual DiffChange
+  DapperPin                                   DiagnosticVirtualTextHint
+  DapperMemory1..4   DiagnosticVirtualTextInfo, ...Hint, ...Ok, DiffText
+
+ vim:tw=78:ts=8:ft=help:norl:
