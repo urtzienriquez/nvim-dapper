@@ -1,5 +1,5 @@
 -- nvim --headless --noplugin -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests"
--- (scripts/test.sh clones plenary.nvim and nvim-dap into tests/deps/, unless $PLENARY_PATH and
+-- (scripts/test.sh clones plenary.nvim and nvim-dap into .deps/, unless $PLENARY_PATH and
 -- $DAP_PATH point at them)
 
 vim.o.swapfile = false
@@ -11,7 +11,7 @@ vim.opt.runtimepath:prepend(root)
 package.path = root .. "/?.lua;" .. root .. "/?/init.lua;" .. package.path
 
 for _, dep in ipairs({ { "PLENARY_PATH", "plenary.nvim" }, { "DAP_PATH", "nvim-dap" } }) do
-  local path = vim.env[dep[1]] or (root .. "/tests/deps/" .. dep[2])
+  local path = vim.env[dep[1]] or (root .. "/.deps/" .. dep[2])
   if vim.fn.isdirectory(path) == 0 then
     error(dep[2] .. " not found at " .. path .. " -- run scripts/test.sh, or set $" .. dep[1])
   end

@@ -228,7 +228,10 @@ describe("features", function()
     end)
   end)
 
-  it("verifies a function breakpoint set before the session (pending until it loads)", function()
+  -- (gdb 14 and 15 run the program at the launch request, before the breakpoints are set: the
+  -- function breakpoints dapper sends then come too late. gdb 16 waits for configurationDone.)
+  local it16 = version >= 16 and it or pending
+  it16("verifies a function breakpoint set before the session (pending until it loads)", function()
     dap.clear_breakpoints() -- (the line ones of the tests before: it stops in twice first)
     dapper.break_on("twice")
     stops = 0

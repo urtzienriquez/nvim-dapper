@@ -106,6 +106,13 @@ local function listen()
     end
   end
 
+  -- status() changed: the status lines say it (once nvim-dap is done with the event)
+  local function redraw_status()
+    vim.schedule(function()
+      vim.cmd("redrawstatus!")
+    end)
+  end
+
   -- A stop: the views that show the frame are drawn once nvim-dap has selected it (it then asks
   -- for its scopes, below), not before: they would show the old one, and draw twice.
   after.event_stopped[id] = function()
@@ -131,6 +138,7 @@ local function listen()
       last_frame = frame
       refresh()
       virtual_text()
+      redraw_status()
       if package.loaded["dapper.pins"] then
         vim.schedule(require("dapper.pins").update)
       end
@@ -151,6 +159,7 @@ local function listen()
       end
       refresh()
       clear_virtual_text()
+      redraw_status()
     end
   end
   for _, event in ipairs({ "setBreakpoints", "event_breakpoint" }) do
@@ -165,6 +174,7 @@ local function listen()
     refresh("threads")
   end
   after.event_initialized[id] = function(session)
+    redraw_status()
     refresh("exceptions")
     refresh("sessions")
     if package.loaded["dapper.views.disassembly"] and next(require("dapper.views.disassembly").breakpoints) then

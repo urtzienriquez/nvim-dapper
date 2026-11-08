@@ -46,6 +46,11 @@ function M.check()
     health.warn("gdb is not installed: C and C++ cannot be debugged", { "Install gdb 14 or later" })
   elseif version < 14 then
     health.error(("gdb %d speaks no DAP"):format(version), { "Install gdb 14 or later" })
+  elseif version < 16 then
+    health.warn(
+      ("gdb %d starts the program before the breakpoints are set: some set beforehand can be missed"):format(version),
+      { "Install gdb 16 or later (it waits for them)" }
+    )
   else
     health.ok(("gdb %d (it speaks DAP)"):format(version))
   end

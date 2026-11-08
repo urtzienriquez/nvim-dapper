@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the plenary.nvim test suite. Clones plenary.nvim and nvim-dap into tests/deps/ on the
+# Runs the plenary.nvim test suite. Clones plenary.nvim and nvim-dap into .deps/ on the
 # first run (gitignored, dev-only), unless $PLENARY_PATH / $DAP_PATH point at them.
 # Requires: nvim, git; for the debugging tests, gcc and gdb 14 or later (else they are skipped).
 set -euo pipefail
@@ -7,7 +7,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 clone() { # env var, repository, folder
-  local path="${!1:-$root/tests/deps/$3}"
+  local path="${!1:-$root/.deps/$3}" # (not in tests/: their own specs would run too)
   if [ ! -d "$path" ]; then
     echo "Cloning $3 into $path ..."
     mkdir -p "$(dirname "$path")"

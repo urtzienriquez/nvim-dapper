@@ -262,7 +262,9 @@ else the working directory) are kept in stdpath("data")/dapper.json.
 GDB                                                               *dapper-gdb*
 
 gdb 14 and later speak DAP. If nvim-dap has no gdb adapter, setup() gives it
-dapper's.
+dapper's. gdb 14 and 15 start the program as soon as it is launched, before
+the breakpoints are set, so the program can run past some set beforehand (and
+dapper's function breakpoints come too late); gdb 16 waits for them.
 
 require("dapper").gdb([{args}])                                 *dapper.gdb()*
     An nvim-dap adapter for gdb, whose program reads and writes the "Program

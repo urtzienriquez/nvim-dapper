@@ -200,7 +200,9 @@ for changed values, …), so it follows your colorscheme.
 
 ## gdb
 
-gdb 14 and later speak DAP. `setup()` gives nvim-dap a gdb adapter if you have none: like
+gdb 14 and later speak DAP; gdb 16 or later is best: 14 and 15 start the program as soon as it is
+launched, before the breakpoints are set, so it can run past some set beforehand (dapper's
+function breakpoints come too late). `setup()` gives nvim-dap a gdb adapter if you have none: like
 `require("dapper").gdb()`, which gives the program the "Program I/O" terminal (gdb gives it none,
 so `scanf()` would read nothing). Debuggers that run programs in a terminal themselves, like
 debugpy, get theirs there too. dapper also works around gdb answering breakpoints set before the
@@ -213,5 +215,5 @@ directory) are kept in `stdpath("data")/dapper.json`.
 
 ## Tests
 
-`scripts/test.sh` (it clones plenary.nvim and nvim-dap into `tests/deps/` on the first run; the
+`scripts/test.sh` (it clones plenary.nvim and nvim-dap into `.deps/` on the first run; the
 debugging tests need gcc and gdb 14 or later).
