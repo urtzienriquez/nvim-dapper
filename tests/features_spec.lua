@@ -209,7 +209,11 @@ describe("features", function()
       end
       return text:find("debug information", 1, true) ~= nil
     end)
-    assert.truthy(text:find("gdb %d+ %(it speaks DAP%)"), text)
+    if version >= 16 then
+      assert.truthy(text:find("gdb %d+ %(it speaks DAP%)"), text)
+    else -- (14, 15: they start the program before the breakpoints are set)
+      assert.truthy(text:find("gdb %d+ starts the program before the breakpoints are set"), text)
+    end
     assert.truthy(text:find("has debug information", 1, true), text)
     assert.truthy(text:find("setup() called", 1, true), text)
     for _, b in ipairs(api.nvim_list_bufs()) do
