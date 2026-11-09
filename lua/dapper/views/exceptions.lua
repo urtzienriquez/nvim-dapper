@@ -1,21 +1,29 @@
---- Exceptions: when to stop on them (the filters the debug adapter offers; e.g. C++ throw).
+--- Exceptions: when to stop on them (the filters the debug adapter offers; e.g. C++ throw). What
+--- is chosen is nvim-dap's own setting, dap.defaults[type].exception_breakpoints: set it in your
+--- config, or toggle it here (it then applies to the sessions to come too).
 
 local config = require("dapper.config")
 
 local M = { label = "Exceptions", short = "Except", key = "E" }
 
-M.enabled = {} -- adapter type -> { [filter] = true|false }
-
 local function filters(session)
   return session and session.capabilities and session.capabilities.exceptionBreakpointFilters or {}
 end
 
-local function enabled(session, filter)
-  local chosen = M.enabled[session.config.type] or {}
-  if chosen[filter.filter] == nil then
-    return filter.default == true
+-- the filters on, for `session`'s debugger: nvim-dap's setting ("default": the debugger's defaults)
+local function chosen(session)
+  local setting = require("dap").defaults[session.config.type].exception_breakpoints
+  if type(setting) == "table" then
+    return setting
   end
-  return chosen[filter.filter]
+  return vim.tbl_map(
+    function(filter)
+      return filter.filter
+    end,
+    vim.tbl_filter(function(filter)
+      return filter.default == true
+    end, filters(session))
+  )
 end
 
 function M.render(canvas, session)
@@ -27,8 +35,9 @@ function M.render(canvas, session)
     return canvas:note("This debugger offers no exception filters")
   end
   local icons = config.values.icons
+  local on_ids = chosen(session)
   for _, filter in ipairs(list) do
-    local on = enabled(session, filter)
+    local on = vim.tbl_contains(on_ids, filter.filter)
     canvas:add({
       { (on and icons.enabled or icons.disabled) .. " ", on and "DapperEnabled" or "DapperDisabled" },
       { filter.label },
@@ -37,19 +46,21 @@ function M.render(canvas, session)
   end
 end
 
---- sends the chosen filters to the sessions of the same debugger
-local function apply(type)
-  for _, session in pairs(require("dap").sessions()) do
+-- the sessions of debugger `type` (their children too: js-debug, ...)
+local function sessions_of(type)
+  local found = {}
+  local function walk(session)
     if session.config.type == type and session.initialized then
-      local ids = {}
-      for _, filter in ipairs(filters(session)) do
-        if enabled(session, filter) then
-          table.insert(ids, filter.filter)
-        end
-      end
-      session:set_exception_breakpoints(ids)
+      table.insert(found, session)
+    end
+    for _, child in pairs(session.children or {}) do
+      walk(child)
     end
   end
+  for _, session in pairs(require("dap").sessions()) do
+    walk(session)
+  end
+  return found
 end
 
 M.keys = {
@@ -61,18 +72,17 @@ M.keys = {
       if not (item and item.filter and session) then
         return
       end
-      local type = session.config.type
-      M.enabled[type] = M.enabled[type] or {}
-      M.enabled[type][item.filter.filter] = not item.on
-      apply(type)
-      -- (and for the sessions to come: nvim-dap sends these before the program starts)
-      local ids = {}
-      for _, filter in ipairs(filters(session)) do
-        if enabled(session, filter) then
-          table.insert(ids, filter.filter)
-        end
+      local ids = vim.tbl_filter(function(id)
+        return id ~= item.filter.filter
+      end, chosen(session))
+      if not item.on then
+        table.insert(ids, item.filter.filter)
       end
-      require("dap").defaults[type].exception_breakpoints = ids
+      local type = session.config.type
+      require("dap").defaults[type].exception_breakpoints = ids -- (the sessions to come)
+      for _, s in ipairs(sessions_of(type)) do -- (and those now)
+        s:set_exception_breakpoints(ids)
+      end
       require("dapper.views").refresh("exceptions")
     end,
   },

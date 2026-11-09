@@ -95,20 +95,26 @@ function M.render(canvas)
   end
 end
 
+-- the buffer and line of the breakpoint of `item` (on a line, or a function placed), or nil
+local function location(item)
+  if item and item.buf then
+    return item.buf, item.line
+  elseif item and item.kind == "function" and item.source and item.line then
+    return util.source_buf(item.source), item.line
+  end
+end
+
 M.keys = {
   {
     "<CR>",
     "go to it",
     function(item)
-      if item and item.buf then
-        util.show_location(item.buf, item.line, 1, true)
-      elseif item and item.kind == "function" and item.source and item.line then
-        local buf = util.source_buf(item.source)
-        if buf then
-          util.show_location(buf, item.line, 1, true)
-        end
-      elseif item and item.address then
-        require("dapper").disassembly(item.address)
+      if item and item.address then
+        return require("dapper").disassembly(item.address)
+      end
+      local buf, line = location(item)
+      if buf then
+        util.show_location(buf, line, 1, true)
       end
     end,
   },
@@ -116,8 +122,9 @@ M.keys = {
     "p",
     "show it (the cursor stays)",
     function(item)
-      if item and item.buf then
-        util.show_location(item.buf, item.line, 1, false)
+      local buf, line = location(item)
+      if buf then
+        util.show_location(buf, line, 1, false)
       end
     end,
   },

@@ -12,7 +12,7 @@ Inspired by [nvim-dap-view](https://github.com/igorlfs/nvim-dap-view) and
 ## Getting started
 
 ```lua
-require("dapper").setup() -- optional: the defaults apply on first use
+require("dapper").setup() -- needed: it hooks dapper to nvim-dap (it loads nothing heavy)
 vim.keymap.set("n", "<leader>dd", "<Cmd>Dapper<CR>") -- every action, to pick from
 ```
 
@@ -27,7 +27,7 @@ adds one. `:checkhealth dapper` checks it all, with the fix for what is missing.
 |---|---|---|
 | `W` | Watches | expressions, evaluated at each stop (in the selected frame); kept per project |
 | `S` | Scopes | the variables of the selected frame (the registers collapsed) |
-| `E` | Exceptions | when to stop on them (C++ throw, …) |
+| `E` | Exceptions | when to stop on them (C++ throw, …): nvim-dap's own `exception_breakpoints`, shown and toggled |
 | `B` | Breakpoints | all of them: on lines (their code highlighted as in the file), functions, instructions, values changing |
 | `C` | Call stack | the frames of the stopped thread; the selected one marked |
 | `T` | Threads | all threads, with their frames (filterable) |
@@ -116,7 +116,7 @@ The same key does the same everywhere:
 | `f` | find (Memory, Disassembly); filter the frames (Threads) |
 
 And: Watches `i` / `a` add above / below, `e` edit; `[[` the parent of a value; Breakpoints `p`
-shows it without leaving; Call stack `o` goes to the frame's line, `t` hides library frames;
+shows it (on a line, or a function's) without leaving; Call stack `o` goes to the frame's line, `t` hides library frames;
 Threads `F` inverts the filter.
 
 ## Commands
@@ -169,8 +169,9 @@ vim.o.statusline = "%f %= %{v:lua.require'dapper'.status()}"
 
 ## Setup
 
-`setup()` is optional (without it, the defaults apply on first use). Its options, with their
-defaults:
+`setup()` is needed: it hooks dapper to nvim-dap (`:Dapper` also does it, with the defaults).
+Calling it again applies new options. The signs and nvim-dap's `terminal_win_cmd` are set only
+where they are still nvim-dap's defaults, so yours are kept. Its options, with their defaults:
 
 ```lua
 require("dapper").setup({

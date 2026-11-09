@@ -25,11 +25,11 @@ local function draw()
       return
     end
     local c = canvas.new()
-    local result, err = util.request(session, "evaluate", {
-      expression = float.expr,
-      context = "hover",
-      frameId = session.current_frame and session.current_frame.id,
-    })
+    local mine = float
+    local result, err = util.evaluate(session, float.expr, "hover")
+    if float ~= mine then
+      return -- (closed, or another, while it was asked)
+    end
     if not result then
       c:add({ { err, "DapperError" } })
     else

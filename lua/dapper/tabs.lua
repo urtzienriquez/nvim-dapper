@@ -21,26 +21,19 @@ function M.open(name)
   if tab then
     api.nvim_set_current_tabpage(tab)
   else
-    vim.cmd("tabnew")
+    local buf = views.buffer(name)
+    M.opening = true -- (its TabEnter comes before it is marked dapper's)
+    vim.cmd.sbuffer({ buf, mods = { tab = 1 } })
+    M.opening = false
     vim.t.dapper_view = name
     local win = api.nvim_get_current_win()
-    local scratch = api.nvim_get_current_buf()
-    local buf = views.buffer(name, win)
-    api.nvim_win_set_buf(win, buf)
-    if api.nvim_buf_is_valid(scratch) and scratch ~= buf then
-      pcall(api.nvim_buf_delete, scratch, { force = true })
-    end
-    for option, value in pairs({
-      number = false,
-      relativenumber = false,
-      signcolumn = "no",
-      foldcolumn = "0",
-      spell = false,
-      list = false,
-      wrap = false,
-      cursorline = true,
+    -- (the window copies the one it was opened from: a pane's bar, its fixed size, ...)
+    for option, value in pairs(vim.tbl_extend("force", views.WINDOW_OPTIONS, {
+      winbar = "",
+      winfixwidth = false,
+      winfixheight = false,
       winfixbuf = true,
-    }) do
+    })) do
       vim.wo[win][option] = value
     end
     vim.keymap.set("n", "g?", function()

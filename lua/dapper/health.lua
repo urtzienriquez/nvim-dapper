@@ -11,20 +11,26 @@ local function gdb_version()
   return tonumber(vim.fn.system({ "gdb", "--version" }):match("GNU gdb [^%d]*(%d+)") or "")
 end
 
+--- whether `program` has debug information; nil: no way to tell (no readelf, or not a binary:
+--- a Python script, ...)
 local function has_debug_info(program)
   if vim.fn.executable("readelf") ~= 1 then
-    return nil -- (no way to tell)
+    return nil
   end
-  return vim.fn.system({ "readelf", "-S", "--wide", program }):find("%.debug_info") ~= nil
+  local out = vim.system({ "readelf", "-S", "--wide", program }, { text = true }):wait()
+  if out.code ~= 0 then
+    return nil
+  end
+  return out.stdout:find("%.debug_info") ~= nil
 end
 
 function M.check()
   health.start("dapper")
 
-  if vim.fn.has("nvim-0.10") == 1 then
+  if vim.fn.has("nvim-0.12") == 1 then
     health.ok("Neovim " .. tostring(vim.version()))
   else
-    health.error("Neovim 0.10 or later is needed")
+    health.error("Neovim 0.12 or later is needed")
   end
 
   local ok, dap = pcall(require, "dap")
@@ -37,7 +43,9 @@ function M.check()
   if require("dapper").is_set_up() then
     health.ok("setup() called")
   else
-    health.info("setup() not called yet: the defaults apply on first use (and then the gdb adapter)")
+    health.warn("setup() not called: dapper does not follow nvim-dap until it is (or :Dapper is used)", {
+      "Call require('dapper').setup() in your config",
+    })
   end
 
   health.start("dapper: gdb (C, C++, Fortran, Zig, ...)")
@@ -101,7 +109,7 @@ function M.check()
     })
   elseif info then
     health.ok(program .. " has debug information")
-  else
+  elseif vim.fn.executable("readelf") ~= 1 then
     health.info("Install readelf to check the program's debug information")
   end
 end

@@ -57,6 +57,38 @@ function M.source_buf(source)
   end
 end
 
+--- Gives window `win` (made from a pane, or one of dapper's tab pages: a split copies its
+--- options) a code window's options: those of one in any tab page, else Neovim's defaults. So the
+--- signs show, without the pane's tabs, ...
+function M.plain_window(win)
+  local model
+  for _, tab in ipairs(api.nvim_list_tabpages()) do
+    model = model
+      or vim.tbl_filter(function(w)
+        return w ~= win and is_code(w) and not vim.t[tab].dapper_view
+      end, api.nvim_tabpage_list_wins(tab))[1]
+  end
+  for _, option in ipairs({
+    "winbar",
+    "signcolumn",
+    "number",
+    "relativenumber",
+    "foldcolumn",
+    "cursorline",
+    "wrap",
+    "list",
+    "spell",
+    "winfixwidth",
+    "winfixheight",
+    "winfixbuf",
+  }) do
+    pcall(function()
+      vim.wo[win][option] = model and vim.wo[model][option] or api.nvim_get_option_info2(option, {}).default
+    end)
+  end
+  vim.wo[win].winfixbuf = false
+end
+
 --- Shows line (and column) of buf in a window: the one showing it, else the code window (made
 --- if there is none). focus: also move the cursor there.
 function M.show_location(buf, line, column, focus)
@@ -80,34 +112,7 @@ function M.show_location(buf, line, column, focus)
         vim.cmd("topleft split")
         win = api.nvim_get_current_win()
       end
-      -- (a split copies the window's options: a pane's would hide the signs, show its tabs, ...;
-      -- a code window's are taken instead, from any tab page, else Neovim's defaults)
-      local model
-      for _, tab in ipairs(api.nvim_list_tabpages()) do
-        model = model
-          or vim.tbl_filter(function(w)
-            return w ~= win and is_code(w) and not vim.t[tab].dapper_view
-          end, api.nvim_tabpage_list_wins(tab))[1]
-      end
-      for _, option in ipairs({
-        "winbar",
-        "signcolumn",
-        "number",
-        "relativenumber",
-        "foldcolumn",
-        "cursorline",
-        "wrap",
-        "list",
-        "spell",
-        "winfixwidth",
-        "winfixheight",
-        "winfixbuf",
-      }) do
-        pcall(function()
-          vim.wo[win][option] = model and vim.wo[model][option] or api.nvim_get_option_info2(option, {}).default
-        end)
-      end
-      vim.wo[win].winfixbuf = false
+      M.plain_window(win)
       api.nvim_win_set_buf(win, buf)
       api.nvim_set_current_win(cur)
     end
@@ -172,13 +177,16 @@ function M.code_chunks(buf, lnum)
   return chunks
 end
 
---- runs fn in a coroutine, reporting its errors (nvim-dap's requests then read as plain calls)
+--- runs fn in a coroutine (nvim-dap's requests then read as plain calls), reporting its errors,
+--- also those after it waited for an answer
 function M.run(fn, ...)
-  local co = coroutine.create(fn)
-  local ok, err = coroutine.resume(co, ...)
-  if not ok then
-    M.notify(debug.traceback(co, tostring(err)), vim.log.levels.ERROR)
-  end
+  local args = { ... }
+  coroutine.wrap(function()
+    local ok, err = xpcall(fn, debug.traceback, unpack(args))
+    if not ok then
+      M.notify(err, vim.log.levels.ERROR)
+    end
+  end)()
 end
 
 --- vim.ui.input, waited for (in a coroutine)
@@ -225,6 +233,16 @@ function M.request(session, command, args)
     return nil, M.explain(err.message or tostring(err))
   end
   return result
+end
+
+--- evaluates `expression` in the selected frame (context: "watch", default; "repl" for the
+--- debugger's own commands; "hover") (in a coroutine)
+function M.evaluate(session, expression, context)
+  return M.request(session, "evaluate", {
+    expression = expression,
+    context = context or "watch",
+    frameId = session.current_frame and session.current_frame.id,
+  })
 end
 
 --- Several requests ({ command, args } each), sent at once and waited for together (in a
@@ -278,9 +296,6 @@ function M.cached(session, command, args)
   hit = { waiting = {} }
   cache[key] = hit
   local result, err = M.request(session, command, args)
-  if command == "variables" and result then -- (their names: for completion)
-    require("dapper.complete").note(result.variables)
-  end
   local waiting = hit.waiting
   hit.result, hit.err, hit.waiting = result, err, nil
   if err then
@@ -290,6 +305,35 @@ function M.cached(session, command, args)
     coroutine.resume(co, result, err)
   end
   return result, err
+end
+
+--- The variables of `frame` (default: the selected one), not its registers (in a coroutine).
+function M.frame_variables(session, frame)
+  frame = frame or session.current_frame
+  local vars = {}
+  local scopes = frame and M.cached(session, "scopes", { frameId = frame.id })
+  for _, scope in ipairs(scopes and scopes.scopes or {}) do
+    if not scope.expensive and not scope.name:lower():find("register") then
+      local result = M.cached(session, "variables", { variablesReference = scope.variablesReference })
+      vim.list_extend(vars, result and result.variables or {})
+    end
+  end
+  return vars
+end
+
+--- A value was set (or memory written) while stopped: everything that shows values, again.
+function M.values_changed()
+  M.forget()
+  if package.loaded["dapper.views.memory"] then
+    require("dapper.views.memory").forget()
+  end
+  require("dapper.views").refresh()
+  if require("dapper.config").values.virtual_text then
+    require("dapper.virtual_text").update()
+  end
+  if package.loaded["dapper.pins"] then
+    require("dapper.pins").update()
+  end
 end
 
 return M

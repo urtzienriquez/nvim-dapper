@@ -1,6 +1,6 @@
 --- The panes: windows in a column (config.position), each showing one view, with the views as
 --- tabs in its window bar. In a pane: a view's key shows it, ]v / [v the next / previous one,
---- <C-w>s / <C-w>v split the pane (below / to the side), q closes it, g? lists the keys.
+--- <C-w>s / <C-w>v split the pane (below / to the side), :q closes it, g? lists the keys.
 
 local config = require("dapper.config")
 local views = require("dapper.views")
@@ -12,7 +12,6 @@ local api = vim.api
 ---@class dapper.Pane
 ---@field win integer
 ---@field view string
----@field split? "below"|"right" how it was split from the pane before it
 
 local panes = {} ---@type dapper.Pane[] the open ones, in the order they were made
 local layout -- what they were when last closed: opened again like that
@@ -20,6 +19,7 @@ local splitting = false -- a split of ours is being made
 local fixing = false -- a split not of ours is being redone
 local closing = false -- we are closing them all (their WinClosed: not a :q)
 local target -- the column's width (its height, "below"): kept when windows open and close
+local snapshot -- the layout before the panes closed in this tick (:only, :tabclose close several)
 
 local function open_panes()
   panes = vim.tbl_filter(function(p)
@@ -63,7 +63,8 @@ end
 function M.refresh_bars()
   local names = config.values.views
   for _, p in ipairs(open_panes()) do
-    local width = api.nvim_win_get_width(p.win) - 4 -- (and g?)
+    local controls = config.values.controls and require("dapper.controls").bar() or ""
+    local width = api.nvim_win_get_width(p.win) - 4 - api.nvim_eval_statusline(controls, {}).width -- (and g?)
     local form = 3
     for try = 1, 2 do
       local total = 0
@@ -79,11 +80,7 @@ function M.refresh_bars()
     for _, name in ipairs(names) do
       table.insert(parts, (tab(name, form, name == p.view)))
     end
-    local bar = table.concat(parts) .. "%#DapperTabFill#%="
-    if config.values.controls then
-      bar = bar .. require("dapper.controls").bar()
-    end
-    bar = bar .. "%#DapperHint# g? " -- (the keys, always at hand)
+    local bar = table.concat(parts) .. "%#DapperTabFill#%=" .. controls .. "%#DapperHint# g? " -- (the keys, at hand)
     vim.wo[p.win].winbar = bar
   end
 end
@@ -94,10 +91,15 @@ local show
 --- window that is no pane (the REPL or a program's terminal shown elsewhere), they do what they do
 --- in Vim.
 local function pane_keys(buf)
-  if vim.b[buf].dapper_pane_keys or vim.bo[buf].buftype == "" then
+  local names = config.values.views
+  local made = vim.b[buf].dapper_pane_keys -- (the views they were made for)
+  if vim.bo[buf].buftype == "" or vim.deep_equal(made, names) then
     return -- (never on a file: they edit text there)
   end
-  vim.b[buf].dapper_pane_keys = true
+  for _, name in ipairs(made or {}) do -- (setup() again, other views: their keys go)
+    pcall(vim.keymap.del, "n", views.get(name).key, { buffer = buf })
+  end
+  vim.b[buf].dapper_pane_keys = names
   local function map(lhs, fn, desc)
     vim.keymap.set("n", lhs, function()
       local p = pane_of(api.nvim_get_current_win())
@@ -108,7 +110,6 @@ local function pane_keys(buf)
       end
     end, { buffer = buf, nowait = true, desc = "dapper: " .. desc })
   end
-  local names = config.values.views
   for _, name in ipairs(names) do
     map(views.get(name).key, function(p)
       show(p, name)
@@ -116,8 +117,9 @@ local function pane_keys(buf)
   end
   local function step(by)
     return function(p)
-      local i = vim.fn.index(names, p.view) + 1
-      show(p, names[(i - 1 + by) % #names + 1])
+      local all = config.values.views
+      local i = vim.fn.index(all, p.view) + 1
+      show(p, all[(i - 1 + by) % #all + 1])
     end
   end
   map("]v", step(1), "next view")
@@ -139,7 +141,7 @@ show = function(p, name)
   -- the panes keep 'winfixbuf', so that nvim-dap never shows code in them; it is lifted only
   -- here, to switch views
   vim.wo[p.win].winfixbuf = false
-  local ok, buf, drawn = pcall(views.buffer, name, p.win)
+  local ok, buf, drawn = pcall(views.buffer, name)
   if ok and buf then
     pcall(api.nvim_win_set_buf, p.win, buf)
   end
@@ -164,16 +166,6 @@ function M.reshow(name)
   end
 end
 
-local WINDOW_OPTIONS = {
-  number = false,
-  relativenumber = false,
-  signcolumn = "no",
-  foldcolumn = "0",
-  spell = false,
-  list = false,
-  wrap = false,
-  cursorline = true,
-}
 
 --- a new pane from window `from`: "first" (the column), "below" or "right" of it (with
 --- `size` lines or columns; default: half of `from`)
@@ -205,8 +197,8 @@ local function new_pane(from, split, view, at, size)
       return nil
     end
   end
-  local p = { win = api.nvim_get_current_win(), view = view, split = split ~= "first" and split or nil }
-  for option, value in pairs(WINDOW_OPTIONS) do
+  local p = { win = api.nvim_get_current_win(), view = view }
+  for option, value in pairs(views.WINDOW_OPTIONS) do
     vim.wo[p.win][option] = value
   end
   vim.wo[p.win][fix] = true
@@ -336,6 +328,8 @@ function M.on_new_window()
     local how = api.nvim_win_get_position(new)[1] == api.nvim_win_get_position(from)[1] and "right" or "below"
     if plain then
       api.nvim_win_close(new, true)
+    else
+      require("dapper.util").plain_window(new) -- (:split file: a code window, not a pane's look)
     end
     restore_size()
     if plain then
@@ -357,6 +351,16 @@ end
 function M.on_closed(win)
   if closing or not pane_of(win) then
     return
+  end
+  if not snapshot then -- (several closed at once, all of them: they open again as they were)
+    snapshot = capture()
+    local mine = snapshot
+    vim.schedule(function()
+      if snapshot == mine then
+        layout = not M.is_open() and mine or layout
+        snapshot = nil
+      end
+    end)
   end
   layout = (#open_panes() > 1 and capture(win)) or capture() or layout
 end
@@ -383,16 +387,6 @@ function M.split(p, how)
   M.refresh_bars()
 end
 
-function M.close_pane(p)
-  if #open_panes() <= 1 then
-    return M.close()
-  end
-  api.nvim_win_close(p.win, true)
-  open_panes()
-  remember_size()
-  M.refresh_bars()
-end
-
 --- opens the panes as they were last closed (at first: config.layout)
 local pending -- asked to open in a tab page of dapper's (Memory, Disassembly): done in the next
 -- tab page entered that is not one
@@ -405,7 +399,7 @@ function M.open()
     pending = true
     return
   end
-  pending = false
+  pending, snapshot = false, nil
   if layout then -- as they were left
     build(layout, new_pane(nil, "first", first_view(layout)).win)
   else -- config.layout: each split from the one before
@@ -426,6 +420,16 @@ function M.close()
   end
   layout = capture() or layout
   closing = true
+  -- (the panes are all the windows left: one becomes a plain window, as Neovim needs one)
+  local tab = api.nvim_win_get_tabpage(open[1].win)
+  local others = vim.tbl_filter(function(win)
+    return not pane_of(win) and api.nvim_win_get_config(win).relative == ""
+  end, api.nvim_tabpage_list_wins(tab))
+  if #others == 0 and #api.nvim_list_tabpages() == 1 then
+    local last = table.remove(open)
+    require("dapper.util").plain_window(last.win)
+    api.nvim_win_set_buf(last.win, api.nvim_create_buf(true, false))
+  end
   for _, p in ipairs(open) do
     pcall(api.nvim_win_close, p.win, true)
   end
@@ -433,9 +437,13 @@ function M.close()
   panes = {}
 end
 
---- forgets how the panes were left: they open as config.layout says (setup() again)
+--- setup() again: the panes open as config.layout says (how they were left is forgotten), and
+--- the open ones take the new views' keys (one showing a view no longer there, the first)
 function M.forget()
-  layout = nil
+  layout, snapshot = nil, nil
+  for _, p in ipairs(open_panes()) do
+    show(p, vim.tbl_contains(config.values.views, p.view) and p.view or config.values.views[1])
+  end
 end
 
 function M.toggle()
@@ -466,7 +474,7 @@ end
 --- the panes of another tab: closed there, opened here (follow_tab)
 function M.follow()
   local open = open_panes()
-  if vim.t.dapper_view then
+  if vim.t.dapper_view or require("dapper.tabs").opening then
     return -- (never into the Memory or Disassembly tab page)
   end
   if #open > 0 and api.nvim_win_get_tabpage(open[1].win) ~= api.nvim_get_current_tabpage() then
@@ -477,7 +485,7 @@ end
 
 --- a tab page entered (TabEnter): the panes asked for in a tab page of dapper's open now
 function M.on_tab_entered()
-  if pending and not vim.t.dapper_view then
+  if pending and not (vim.t.dapper_view or require("dapper.tabs").opening) then
     M.open()
   end
 end

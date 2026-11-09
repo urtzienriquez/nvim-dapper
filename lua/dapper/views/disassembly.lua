@@ -23,11 +23,7 @@ end
 
 -- where the function holding `address` starts (gdb: "main + 67 in section .text"), else it
 local function function_start(session, address)
-  local result = util.request(session, "evaluate", {
-    expression = "info symbol " .. hex(address),
-    context = "repl",
-    frameId = session.current_frame and session.current_frame.id,
-  })
+  local result = util.evaluate(session, "info symbol " .. hex(address), "repl")
   local offset = result and result.result:match("%+ (%d+) in section")
   return address - (tonumber(offset) or 0)
 end
@@ -54,17 +50,27 @@ function M.render(canvas, session)
   local start = function_start(session, target)
   -- (from the function's start: in a long one, more instructions, until the one shown is in)
   local count, result, err = config.values.disassembly.instructions, nil, nil
-  for _ = 1, 6 do
+  local function disassemble(from)
     result, err = util.request(session, "disassemble", {
-      memoryReference = hex(start),
+      memoryReference = hex(from),
       instructionCount = count,
       resolveSymbols = true,
     })
     local last = result and result.instructions and result.instructions[#result.instructions]
-    if not last or number(last.address) >= target then
+    return not last or number(last.address) >= target
+  end
+  local reached = disassemble(start)
+  for _ = 1, 5 do
+    if reached then
       break
     end
     count = count * 2
+    reached = disassemble(start)
+  end
+  if not reached then -- (too long a function: from the instruction, not from its start)
+    count = config.values.disassembly.instructions
+    disassemble(target)
+    canvas:note("A long function: shown from here, not from its start")
   end
   if not result then
     return canvas:add({ { err, "DapperError" } })
@@ -173,11 +179,7 @@ function M.go(expr)
   util.run(function()
     local address = expr:match("^0[xX]%x+$") and tonumber(expr:sub(3), 16)
     if not address then
-      local result = util.request(session, "evaluate", {
-        expression = "(void *)(" .. expr .. ")",
-        context = "watch",
-        frameId = session.current_frame and session.current_frame.id,
-      })
+      local result = util.evaluate(session, "(void *)(" .. expr .. ")")
       address = result and number(result.result)
     end
     if not address then
@@ -223,8 +225,26 @@ function M.go_line(path, line)
 end
 
 --- while the cursor is in it, stepping goes one instruction at a time
+--- While the cursor is in it, stepping goes one instruction at a time (nvim-dap's
+--- stepping_granularity, given back on leaving).
 function M.attach(buf)
-  vim.b[buf].dapper_disassembly = true
+  local before -- { the granularity before } while in it
+  local defaults = require("dap").defaults.fallback
+  vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
+    buffer = buf,
+    callback = function()
+      before = before or { defaults.stepping_granularity }
+      defaults.stepping_granularity = "instruction"
+    end,
+  })
+  vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, {
+    buffer = buf,
+    callback = function()
+      if before then
+        defaults.stepping_granularity, before = before[1], nil
+      end
+    end,
+  })
 end
 
 M.keys = {

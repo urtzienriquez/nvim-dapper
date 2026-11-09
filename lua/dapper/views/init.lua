@@ -8,6 +8,18 @@ local M = {}
 
 local api = vim.api
 
+--- the options of the windows showing views (panes, Memory's and Disassembly's tab pages)
+M.WINDOW_OPTIONS = {
+  number = false,
+  relativenumber = false,
+  signcolumn = "no",
+  foldcolumn = "0",
+  spell = false,
+  list = false,
+  wrap = false,
+  cursorline = true,
+}
+
 local modules = {} -- name -> module, loaded on use
 function M.get(name)
   if not modules[name] then
@@ -19,14 +31,17 @@ end
 local bufs = {} -- name -> buffer (of the views that are drawn)
 local generation = {} -- name -> draws started (a draw that is no longer the last is dropped)
 
---- the buffer of view `name` for pane window `win`, and whether it is one drawn here
-function M.buffer(name, win)
+--- the buffer of view `name`, and whether it is one drawn here
+function M.buffer(name)
   local view = M.get(name)
   if view.buffer then
-    return view.buffer(win), false
+    return view.buffer(), false
   end
   local buf = bufs[name]
-  if not (buf and api.nvim_buf_is_valid(buf)) then
+  if buf and api.nvim_buf_is_valid(buf) and not api.nvim_buf_is_loaded(buf) then -- (:bd: made again)
+    api.nvim_buf_delete(buf, { force = true })
+  end
+  if not (buf and api.nvim_buf_is_loaded(buf)) then
     buf = api.nvim_create_buf(false, true)
     vim.bo[buf].filetype = "dapper"
     vim.bo[buf].bufhidden = "hide"

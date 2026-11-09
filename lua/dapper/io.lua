@@ -10,9 +10,11 @@ local M = {}
 local api = vim.api
 
 local own -- the terminal made here (for gdb)
+local last -- the last terminal of a program (made here, or by nvim-dap): kept after its session
 M.unseen = false -- the program printed while no pane showed it
 
 local function watch(buf)
+  last = buf
   M.unseen = false
   -- not in the buffer list: it is dapper's, shown by Program I/O (a TermOpen autocmd may list
   -- terminals; this runs after it)
@@ -34,14 +36,14 @@ local function watch(buf)
   end)
 end
 
---- the terminal to show: the current session's, else the last one made here
+--- the terminal to show: the current session's, else the last one (of a session that ended)
 function M.buffer()
   local session = require("dap").session()
   if session and session.term_buf and api.nvim_buf_is_valid(session.term_buf) then
     return session.term_buf
   end
-  if own and api.nvim_buf_is_valid(own) then
-    return own
+  if last and api.nvim_buf_is_valid(last) then
+    return last
   end
 end
 
@@ -49,6 +51,7 @@ end
 function M.tty()
   local old = own
   own = api.nvim_create_buf(false, true)
+  last = own -- (the panes showing the old one show it, below)
   local chan
   api.nvim_buf_call(own, function()
     chan = vim.fn.jobstart({ "sleep", "infinity" }, { term = true }) -- keeps it open, reads nothing

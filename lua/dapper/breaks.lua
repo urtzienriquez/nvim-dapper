@@ -17,11 +17,20 @@ local M = {}
 ---@field source? table where it was placed, once verified
 ---@field line? integer
 
-M.functions = vim.tbl_map(function(name)
+M.functions = {} ---@type dapper.FunctionBreakpoint[] (kept per project)
+local function save_functions()
+  require("dapper.store").set(
+    "functions",
+    vim.tbl_map(function(f)
+      return f.name
+    end, M.functions)
+  )
+end
+require("dapper.store").track("functions", M.functions, save_functions, function(name)
   return { name = name }
-end, require("dapper.store").get("functions")) ---@type dapper.FunctionBreakpoint[]
+end)
 
-M.changes = {} ---@type { expr: string, id?: any, verified?: boolean }[] (this session's)
+M.changes = {} ---@type { expr: string, id?: any }[] (this session's)
 
 local function refresh()
   require("dapper.views").refresh("breakpoints")
@@ -82,12 +91,7 @@ function M.toggle_function(name)
     table.insert(M.functions, { name = name })
     util.notify("Breaking on " .. name)
   end
-  require("dapper.store").set(
-    "functions",
-    vim.tbl_map(function(f)
-      return f.name
-    end, M.functions)
-  )
+  save_functions()
   M.send_functions()
 end
 
@@ -131,11 +135,7 @@ function M.toggle_change(expr, item)
     end
     local entry = { expr = expr }
     if gdb_like(session) then
-      local result, err = util.request(session, "evaluate", {
-        expression = "watch -location " .. expr,
-        context = "repl",
-        frameId = session.current_frame and session.current_frame.id,
-      })
+      local result, err = util.evaluate(session, "watch -location " .. expr, "repl")
       local id = result and result.result:match("atchpoint (%d+)")
       if not id then
         return util.notify(
@@ -143,7 +143,7 @@ function M.toggle_change(expr, item)
           vim.log.levels.WARN
         )
       end
-      entry.id, entry.verified = id, true
+      entry.id = id
     else
       local info = util.request(session, "dataBreakpointInfo", {
         name = item and item.var and item.var.name or expr,
@@ -153,13 +153,12 @@ function M.toggle_change(expr, item)
       if not (info and info.dataId) then
         return util.notify("This debugger cannot watch " .. expr, vim.log.levels.WARN)
       end
-      entry.id, entry.verified = info.dataId, true
-      table.insert(M.changes, entry)
-      send_data(session)
-      util.notify("Breaking when " .. expr .. " changes")
-      return refresh()
+      entry.id = info.dataId
     end
     table.insert(M.changes, entry)
+    if not gdb_like(session) then
+      send_data(session)
+    end
     util.notify("Breaking when " .. expr .. " changes")
     refresh()
   end)

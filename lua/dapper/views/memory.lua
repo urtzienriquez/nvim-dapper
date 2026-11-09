@@ -9,13 +9,14 @@ local util = require("dapper.util")
 
 local M = { label = "Memory" }
 
-M.anchor = nil -- what g went to (an expression: followed at each stop); nil: the selected
+M.anchor = nil -- what f went to (an expression: followed at each stop); nil: the selected
 -- frame's variables (followed at each stop, and when another frame is selected), as raddebugger
 M.address = nil -- the address shown first (its row)
 M.cursor = nil -- the address of the byte the cursor is on
 M.follow = true -- the rows follow it (looked up again at each stop); paging stops it
 local followed_frame -- the frame they were last looked up for
 local quiet = false -- what was gone to came from under the cursor: if it is no address, no warning
+local missing = false -- the expression followed could not be found (said once)
 local version = 0 -- a new one at each go to (a draw that started before one leaves its target alone)
 local bytes = {} -- address -> byte, as last read
 local before = {} -- the bytes at the stop before
@@ -36,11 +37,7 @@ function M.resolve(session, expr)
     return tonumber(expr)
   end
   for _, form in ipairs({ "(void *)&(%s)", "(void *)(%s)" }) do
-    local result = util.request(session, "evaluate", {
-      expression = form:format(expr),
-      context = "watch",
-      frameId = session.current_frame and session.current_frame.id,
-    })
+    local result = util.evaluate(session, form:format(expr))
     local digits = result and result.result:match("^0x(%x+)")
     if digits then
       return tonumber(digits, 16)
@@ -60,19 +57,8 @@ local function variables(session)
   if annotations.frame == frame.id and annotations.stop == session.stopped_thread_id then
     return annotations.list
   end
-  -- the frame's variables (not its registers), then where each is and its size: all asked at once
-  local vars = {}
-  local scopes = util.cached(session, "scopes", { frameId = frame.id })
-  for _, scope in ipairs(scopes and scopes.scopes or {}) do
-    if not scope.expensive and not scope.name:lower():find("register") then
-      local result = util.cached(session, "variables", { variablesReference = scope.variablesReference })
-      for _, var in ipairs(result and result.variables or {}) do
-        if #vars < 32 then
-          table.insert(vars, var)
-        end
-      end
-    end
-  end
+  -- the frame's variables, then where each is and its size: all asked at once
+  local vars = vim.list_slice(util.frame_variables(session, frame), 1, 32)
   local asks = {}
   for _, var in ipairs(vars) do
     local name = var.evaluateName or var.name
@@ -148,8 +134,8 @@ end
 -- struct's expression: asked once per stop.
 local members = {}
 
-local function kid(node, var, from, size)
-  local expr = var.evaluateName or require("dapper.tree").child_expression(node.expr, node.type, var.name)
+local function kid(node, var, from, size, only)
+  local expr = var.evaluateName or require("dapper.tree").child_expression(node, var.name, only)
   return {
     name = var.name,
     expr = expr,
@@ -188,7 +174,7 @@ local function member_at(session, node, address)
     vars = vim.list_slice(vars, 1, 64)
     local asks = {}
     for _, var in ipairs(vars) do
-      local expr = kid(node, var, 0, 1).expr
+      local expr = kid(node, var, 0, 1, #vars == 1).expr
       table.insert(asks, { "evaluate", { expression = "(void *)&(" .. expr .. ")", context = "watch", frameId = frame } })
       table.insert(asks, { "evaluate", { expression = "sizeof(" .. expr .. ")", context = "watch", frameId = frame } })
     end
@@ -198,7 +184,7 @@ local function member_at(session, node, address)
       local from = answers[2 * i - 1] and answers[2 * i - 1].result:match("^0x(%x+)")
       local size = answers[2 * i] and tonumber(answers[2 * i].result)
       if from and size and size > 0 then
-        table.insert(list, kid(node, var, tonumber(from, 16), size))
+        table.insert(list, kid(node, var, tonumber(from, 16), size, #vars == 1))
       end
     end
     members[node.expr] = list
@@ -226,10 +212,15 @@ function M.innermost(session, var, address)
   return node
 end
 
-function M.stopped()
-  before, bytes = bytes, {}
+--- the variables' values and places, asked again (a value was set)
+function M.forget()
   annotations = { list = {} }
   members = {}
+end
+
+function M.stopped()
+  before, bytes = bytes, {}
+  M.forget()
   if M.follow then
     M.address = nil -- (looked up again: in another frame, a variable is elsewhere)
   end
@@ -241,19 +232,21 @@ function M.render(canvas, session)
   end
   local columns, rows = config.values.memory.columns, config.values.memory.rows
   local frame = session.current_frame and session.current_frame.id
-  if M.follow and not M.anchor and frame ~= followed_frame then
-    M.address = nil -- (another frame selected: its variables)
+  if M.follow and frame ~= followed_frame then
+    M.address = nil -- (another frame selected: its variables, or the expression in it)
   end
   if not M.address then
     local mine = version
     local target, err
     if M.anchor then
       target, err = M.resolve(session, M.anchor)
-      if not target then
-        if not quiet then
-          util.notify(err .. ": the current frame's variables instead", vim.log.levels.WARN)
-        end
-        M.anchor = nil
+      if target then
+        missing = false
+      elseif quiet then
+        M.anchor = nil -- (it was only what was under the cursor)
+      elseif not missing then -- (kept: followed again where it can be, as when back in its frame)
+        util.notify(err .. ": the frame's variables meanwhile", vim.log.levels.WARN)
+        missing = true
       end
     end
     target = target or frame_address(session)
@@ -269,15 +262,30 @@ function M.render(canvas, session)
     canvas.center = true
   end
   local first = M.address - M.address % columns
+  local reads = {} -- { start, data } each
   local result, err = util.request(session, "readMemory", { memoryReference = hex(first), count = columns * rows })
-  if not result then
-    return canvas:add({ { err, "DapperError" } })
+  if result then
+    local start = result.address and tonumber(result.address:match("0x(%x+)") or "", 16)
+    reads[1] = { start = start or first, data = vim.base64.decode(result.data or "") }
+  else -- (gdb reads all or nothing: near memory it cannot read, row by row; what it cannot, ??)
+    local asks = {}
+    for row = 0, rows - 1 do
+      asks[row + 1] = { "readMemory", { memoryReference = hex(first + row * columns), count = columns } }
+    end
+    for row, answer in pairs(util.requests(session, asks)) do
+      table.insert(reads, { start = first + (row - 1) * columns, data = vim.base64.decode(answer.data or "") })
+    end
+    if #reads == 0 then
+      return canvas:add({ { err, "DapperError" } })
+    end
   end
-  local data = vim.base64.decode(result.data or "")
-  local start = result.address and tonumber(result.address:match("0x(%x+)") or "", 16) or first
   local function byte_at(address)
-    local i = address - start + 1
-    return (i >= 1 and i <= #data) and data:byte(i) or nil
+    for _, r in ipairs(reads) do
+      local i = address - r.start + 1
+      if i >= 1 and i <= #r.data then
+        return r.data:byte(i)
+      end
+    end
   end
   local vars = variables(session)
   local frame_starts = {} -- row base -> names of the frames whose part of the stack starts in it
@@ -537,6 +545,7 @@ function M.go(expr, implicit)
   quiet = implicit or false
   expr = expr and vim.trim(expr) or ""
   M.anchor, M.address, M.cursor, M.follow = expr ~= "" and expr or nil, nil, nil, true
+  missing = false
   version = version + 1
   refresh()
 end
@@ -589,8 +598,7 @@ M.keys = {
           return util.notify("Could not write: " .. err, vim.log.levels.WARN)
         end
         M.cursor = address
-        util.forget()
-        require("dapper.views").refresh() -- (the variables changed too)
+        util.values_changed() -- (the variables changed too)
       end)
     end,
   },

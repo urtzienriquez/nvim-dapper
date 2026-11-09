@@ -148,11 +148,18 @@ local function listen()
     after[event][id] = function()
       last_frame = nil
       require("dapper.util").forget()
-      if event ~= "event_continued" and package.loaded["dapper.views.disassembly"] then
-        require("dapper.views.disassembly").anchor = nil -- (an address: another, next session)
-      end
-      if event ~= "event_continued" and package.loaded["dapper.breaks"] then
-        require("dapper.breaks").session_ended()
+      if event ~= "event_continued" then
+        vim.schedule(function() -- (once nvim-dap is done with it: no session left, the state goes)
+          if next(require("dap").sessions()) ~= nil then
+            return -- (another session goes on: its state stays)
+          end
+          if package.loaded["dapper.views.disassembly"] then
+            require("dapper.views.disassembly").anchor = nil -- (an address: another, next session)
+          end
+          if package.loaded["dapper.breaks"] then
+            require("dapper.breaks").session_ended()
+          end
+        end)
       end
       if package.loaded["dapper.pins"] then
         vim.schedule(require("dapper.pins").running)
@@ -201,19 +208,18 @@ local function listen()
   end
 
   -- programs that ask for a terminal (runInTerminal) get one without a window: "Program I/O"
-  -- shows it
-  dap.defaults.fallback.terminal_win_cmd = function()
-    return require("dapper.io").terminal_buffer()
+  -- shows it (unless you set nvim-dap's terminal_win_cmd yourself)
+  if dap.defaults.fallback.terminal_win_cmd == "belowright new" then
+    dap.defaults.fallback.terminal_win_cmd = function()
+      return require("dapper.io").terminal_buffer()
+    end
   end
 end
 
 -- the program stops: its line is shown (in the window showing that file, else in a code window),
 -- but the cursor stays where it was, unlike nvim-dap's own way (keep_cursor)
-local function keep_cursor(swb)
-  return require("dapper.util").show_location(swb.buf, swb.line, swb.column, false)
-end
-local own_switchbuf = function(buf, line, column)
-  keep_cursor({ buf = buf, line = line, column = column })
+local function own_switchbuf(buf, line, column)
+  require("dapper.util").show_location(buf, line, column, false)
 end
 local switchbuf_before -- what it was before dapper's
 
@@ -229,7 +235,8 @@ end
 
 local set_up = false
 
---- Sets it up (once is enough; without it, it is set up with the defaults on first use).
+--- Sets it up: hooks it to nvim-dap (needed: until then, it does not follow the debugger; :Dapper
+--- also does it, with the defaults). Calling it again applies the new options.
 function M.setup(opts)
   config.set(opts)
   if package.loaded["dapper.panes"] then
@@ -241,8 +248,12 @@ function M.setup(opts)
     callback = highlights,
   })
   if config.values.signs then
+    require("dap") -- (it defines its signs: replaced only where they are still its own)
     for name, sign in pairs(SIGNS) do
-      vim.fn.sign_define(name, sign)
+      local defined = vim.fn.sign_getdefined(name)[1]
+      if not defined or defined.texthl == "SignColumn" then
+        vim.fn.sign_define(name, sign)
+      end
     end
   end
   api.nvim_create_autocmd("TabEnter", {
@@ -290,20 +301,6 @@ function M.setup(opts)
       end
     end,
   })
-  -- in the Disassembly view, stepping goes one instruction at a time
-  api.nvim_create_autocmd({ "WinEnter", "BufEnter" }, {
-    group = "dapper",
-    callback = function()
-      local defaults = require("dap").defaults.fallback
-      if vim.b.dapper_disassembly then
-        M._granularity = M._granularity or defaults.stepping_granularity
-        defaults.stepping_granularity = "instruction"
-      elseif M._granularity then -- (kept in M: setup() again does not lose it)
-        defaults.stepping_granularity = M._granularity
-        M._granularity = nil
-      end
-    end,
-  })
   api.nvim_create_autocmd("BufReadPost", { -- a file with pins, opened
     group = "dapper",
     callback = function(ev)
@@ -332,7 +329,7 @@ function M.setup(opts)
   set_up = true
 end
 
---- whether setup() was called (or done on first use)
+--- whether setup() was called (or done by :Dapper)
 function M.is_set_up()
   return set_up
 end
@@ -428,8 +425,13 @@ function M.toggle_virtual_text()
 end
 
 -- the breakpoint on the cursor's line, if there is one
+-- the breakpoint of the cursor's line, or nil; false: the cursor is not on a line of a file
 local function breakpoint_here()
   local buf, line = api.nvim_get_current_buf(), api.nvim_win_get_cursor(0)[1]
+  if vim.bo[buf].buftype ~= "" or api.nvim_buf_get_name(buf) == "" then
+    require("dapper.util").notify("Breakpoints go on a line of a file", vim.log.levels.WARN)
+    return false
+  end
   for _, bp in ipairs(require("dap.breakpoints").get(buf)[buf] or {}) do
     if bp.line == line then
       return bp
@@ -442,13 +444,17 @@ end
 function M.conditional_breakpoint()
   ensure()
   local existing = breakpoint_here()
+  if existing == false then
+    return
+  end
+  existing = existing or {}
   vim.ui.input({
     prompt = "Break if: ",
-    default = existing and existing.condition or nil,
+    default = existing.condition,
     completion = "customlist,v:lua.require'dapper'.complete",
   }, function(condition)
-    if condition and vim.trim(condition) ~= "" then
-      require("dap").set_breakpoint(vim.trim(condition))
+    if condition and vim.trim(condition) ~= "" then -- (its hit count and log message kept)
+      require("dap").set_breakpoint(vim.trim(condition), existing.hitCondition, existing.logMessage)
     end
   end)
 end
@@ -458,13 +464,17 @@ end
 function M.log_point()
   ensure()
   local existing = breakpoint_here()
+  if existing == false then
+    return
+  end
+  existing = existing or {}
   vim.ui.input({
     prompt = "Log (expressions in {}): ",
-    default = existing and existing.logMessage or nil,
+    default = existing.logMessage,
     completion = "customlist,v:lua.require'dapper'.complete",
   }, function(message)
-    if message and vim.trim(message) ~= "" then
-      require("dap").set_breakpoint(nil, nil, message)
+    if message and vim.trim(message) ~= "" then -- (its condition and hit count kept)
+      require("dap").set_breakpoint(existing.condition, existing.hitCondition, message)
     end
   end)
 end

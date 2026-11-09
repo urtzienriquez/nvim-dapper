@@ -172,7 +172,7 @@ describe("Memory and Disassembly", function()
     end))
   end)
 
-  it("goes to a variable or an address with g", function()
+  it("goes to a variable or an address with f", function()
     require("dapper.views.memory").go("c")
     assert.is_true(wait(function()
       local row = api.nvim_win_get_cursor(0)[1]

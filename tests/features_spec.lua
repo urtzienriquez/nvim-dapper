@@ -102,6 +102,20 @@ describe("features", function()
     assert.same({ { path = vim.fs.normalize(file), line = 11, expr = "n" } }, require("dapper.store").get("pins"))
   end)
 
+  it("moves a pin with its line, also when drawn again", function()
+    local function pin_row()
+      local marks = api.nvim_buf_get_extmarks(code_buf, api.nvim_create_namespace("dapper.pins"), 0, -1, {})
+      return marks[1] and marks[1][2] + 1
+    end
+    api.nvim_buf_set_lines(code_buf, 0, 0, false, { "", "" }) -- (two lines above it)
+    require("dapper.pins").draw()
+    assert.equals(13, pin_row())
+    api.nvim_buf_set_lines(code_buf, 0, 2, false, {}) -- (and back)
+    require("dapper.pins").draw()
+    assert.equals(11, pin_row())
+    vim.bo[code_buf].modified = false
+  end)
+
   it("breaks when a value changes", function()
     dapper.break_on_change("n")
     assert.is_true(wait(function()

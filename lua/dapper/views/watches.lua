@@ -7,10 +7,11 @@ local M = { label = "Watches", short = "Watch", key = "W" }
 
 local COMPLETE = "customlist,v:lua.require'dapper'.complete"
 
-M.expressions = require("dapper.store").get("watches") ---@type string[] (kept per project)
+M.expressions = {} ---@type string[] (kept per project)
 local function save()
   require("dapper.store").set("watches", M.expressions)
 end
+require("dapper.store").track("watches", M.expressions, save)
 M.tree = tree.new()
 
 -- The debugger's own commands, as typed in its REPL (gdb's p/t n, x/8xb &n, info frame, ...),
@@ -38,23 +39,24 @@ local function pad(expr)
   return string.rep(" ", width - vim.fn.strdisplaywidth(expr)) .. " = "
 end
 
+-- expression number i has no value now: why (an error, the program running, not debugging)
+local function no_value(canvas, session, i, expr, err)
+  local why = err or (session and "running…" or "not debugging")
+  canvas:add(
+    { { "  " }, { expr, "DapperName" }, { pad(expr) }, { why, err and "DapperError" or "DapperMuted" } },
+    { kind = "expression", index = i }
+  )
+end
+
 --- draws command `command` (of expression number i) and its output
 local function draw_command(canvas, session, i, expr, command, path)
   local result, err
   if session and session.stopped_thread_id then
-    result, err = util.request(session, "evaluate", {
-      expression = command,
-      context = "repl",
-      frameId = session.current_frame and session.current_frame.id,
-    })
+    result, err = util.evaluate(session, command, "repl")
   end
   local output = result and vim.trim(result.result or ""):gsub("^%$%d+ = ", "")
   if not output then
-    local why = err or (session and "running…" or "not debugging")
-    return canvas:add(
-      { { "  " }, { expr, "DapperName" }, { pad(expr) }, { why, err and "DapperError" or "DapperMuted" } },
-      { kind = "expression", index = i }
-    )
+    return no_value(canvas, session, i, expr, err)
   end
   local lines = vim.split(output, "\n", { trimempty = true })
   M.tree.values[path] = output
@@ -80,11 +82,7 @@ function M.render(canvas, session)
     local command = M.command(expr)
     local result, err
     if not command and session and session.stopped_thread_id then
-      result, err = util.request(session, "evaluate", {
-        expression = expr,
-        context = "watch",
-        frameId = session.current_frame and session.current_frame.id,
-      })
+      result, err = util.evaluate(session, expr)
     end
     if command then
       draw_command(canvas, session, i, expr, command, path)
@@ -93,11 +91,7 @@ function M.render(canvas, session)
       -- a pointer shown without its address (gdb prints a char pointer as the string it points
       -- to): the address first, as gdb's own print does
       if result.type and result.type:match("%*%s*$") and not value:match("^0x") then
-        local address = util.request(session, "evaluate", {
-          expression = "(void *)(" .. expr .. ")",
-          context = "watch",
-          frameId = session.current_frame and session.current_frame.id,
-        })
+        local address = util.evaluate(session, "(void *)(" .. expr .. ")")
         if address and address.result:match("^0x") then
           value = address.result .. " " .. value
         end
@@ -107,11 +101,7 @@ function M.render(canvas, session)
       -- string): what it points to, as its child (set with s, as an expression)
       if result.type and result.type:match("%*%s*$") and (result.variablesReference or 0) == 0 then
         local target = expr:match("^&[%w_]+$") and ("*" .. expr) or ("*(" .. expr .. ")")
-        local pointed = util.request(session, "evaluate", {
-          expression = target,
-          context = "watch",
-          frameId = session.current_frame and session.current_frame.id,
-        })
+        local pointed = util.evaluate(session, target)
         if pointed then
           var.children = {
             {
@@ -127,11 +117,7 @@ function M.render(canvas, session)
       M.tree:variable(canvas, session, var, path, nil, 0, nil, width)
       canvas.items[row].index = i
     else
-      local why = err or (session and "running…" or "not debugging")
-      canvas:add({ { "  " }, { expr, "DapperName" }, { pad(expr) }, { why, err and "DapperError" or "DapperMuted" } }, {
-        kind = "expression",
-        index = i,
-      })
+      no_value(canvas, session, i, expr, err)
     end
   end
 end

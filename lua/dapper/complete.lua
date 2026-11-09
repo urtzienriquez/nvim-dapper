@@ -10,10 +10,7 @@ local M = {}
 
 local api = vim.api
 
--- what util.cached's variables answers held (unused now; kept for its callers)
-function M.note() end
-
-local frame_cache = {} -- frame id -> its variables' names (this stop)
+local frame_cache = {} -- session id:frame id -> its variables' names (this stop)
 
 function M.forget()
   frame_cache = {}
@@ -39,8 +36,9 @@ end
 -- the selected frame's variables (not its registers)
 local function frame_names(session)
   local frame = session.current_frame
-  if frame_cache[frame.id] then
-    return frame_cache[frame.id]
+  local key = session.id .. ":" .. frame.id -- (frame ids start again in each session)
+  if frame_cache[key] then
+    return frame_cache[key]
   end
   local names = {}
   local scopes = request(session, "scopes", { frameId = frame.id })
@@ -52,7 +50,7 @@ local function frame_names(session)
       end
     end
   end
-  frame_cache[frame.id] = names
+  frame_cache[key] = names
   return names
 end
 

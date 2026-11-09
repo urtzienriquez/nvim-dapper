@@ -49,33 +49,36 @@ function Tree:summary(session, ref)
   return self.summaries[ref] or ""
 end
 
---- Draws variable `var` (and its children, if expanded) at `depth`.
---- item fields: kind = "variable", var, path, ref (of its container), depth, tree
--- the C expression of child `name` of the variable whose expression is `parent` (of type
--- `type`): a[2], s.x, p->x, *p (gdb names what a pointer points to "value")
-local function child_expression(parent, type, name)
-  if not parent then
+--- The C expression of child `name` of `parent` ({ expr, type, value }: a variable's; `only`: it
+--- is its only child): a[2], s.x, p->x, (*p) (gdb names what a pointer points to "value"). A
+--- parent that is not a plain name or member is put in parentheses: (*p).x, not *p.x.
+function M.child_expression(parent, name, only)
+  if not (parent and parent.expr) or name:sub(1, 1) == "*" then -- (*: one given, Watches')
     return name
-  elseif name:sub(1, 1) == "*" then -- (one given: Watches' char pointers)
-    return name
-  elseif name:match("^%[?%d+%]?$") then
-    return parent .. "[" .. name:match("%d+") .. "]"
   end
-  local pointer = type and type:match("%*%s*$")
+  local expr = parent.expr
+  if not (expr:gsub("%->", "."):match("^[%a_][%w_%.%[%]]*$") or expr:match("^%b()$")) then
+    expr = "(" .. expr .. ")"
+  end
+  if name:match("^%[?%d+%]?$") then
+    return expr .. "[" .. name:match("%d+") .. "]"
+  end
+  -- (a pointer: by its type, or, behind a typedef, by its value being an address, with only
+  -- what it points to as its child)
+  local pointer = (parent.type or ""):match("%*%s*$") or (only and (parent.value or ""):match("^0x%x+"))
   if pointer and name == "value" then
-    return "(*" .. parent .. ")"
+    return "(*" .. expr .. ")"
   end
-  return parent .. (pointer and "->" or ".") .. name
+  return expr .. (pointer and "->" or ".") .. name
 end
-M.child_expression = child_expression
 
 local NAME_WIDTH = 24 -- names are padded to the longest of their siblings, up to this
 
 --- the width to pad the names of `vars` to (siblings: their values line up)
-function M.name_width(vars, key)
+function M.name_width(vars)
   local width = 0
   for _, var in ipairs(vars) do
-    local w = vim.fn.strdisplaywidth(var[key or "name"] or "")
+    local w = vim.fn.strdisplaywidth(var.name or "")
     if w <= NAME_WIDTH then
       width = math.max(width, w)
     end
@@ -118,7 +121,7 @@ function Tree:variable(canvas, session, var, path, ref, depth, expr, width)
         self:variable(canvas, session, child, path .. "/" .. child.name, nil, depth + 1, child.name, w)
       end
     else
-      self:children(canvas, session, var.variablesReference, path, depth + 1, { expr = expr, type = var.type })
+      self:children(canvas, session, var.variablesReference, path, depth + 1, { expr = expr, type = var.type, value = value })
     end
   end
 end
@@ -130,9 +133,10 @@ function Tree:children(canvas, session, ref, path, depth, parent)
     canvas:add({ { string.rep("  ", depth + 1) .. err, "DapperError" } })
     return
   end
-  local width = M.name_width(result.variables or {})
-  for _, var in ipairs(result.variables or {}) do
-    local expr = var.evaluateName or child_expression(parent and parent.expr, parent and parent.type, var.name)
+  local vars = result.variables or {}
+  local width = M.name_width(vars)
+  for _, var in ipairs(vars) do
+    local expr = var.evaluateName or M.child_expression(parent, var.name, #vars == 1)
     self:variable(canvas, session, var, path .. "/" .. var.name, ref, depth, expr, width)
   end
 end
@@ -191,9 +195,7 @@ function M.keys(refresh)
           if err then
             util.notify("Could not set it: " .. err, vim.log.levels.WARN)
           end
-          util.forget()
-          require("dapper.views").refresh() -- (other views may show it too)
-          refresh()
+          util.values_changed() -- (other views, inline values and pins may show it too)
         end)
       end,
     },
@@ -202,8 +204,9 @@ function M.keys(refresh)
       "copy the value",
       function(item)
         if item and item.var then
-          vim.fn.setreg(vim.v.register, item.var.value or "")
-          util.notify("Copied: " .. (item.var.value or ""))
+          local value = item.tree and item.tree.values[item.path] or item.var.value or "" -- (as shown)
+          vim.fn.setreg(vim.v.register, value)
+          util.notify("Copied: " .. value)
         end
       end,
     },

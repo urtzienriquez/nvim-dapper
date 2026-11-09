@@ -16,7 +16,7 @@ local ns = api.nvim_create_namespace("dapper.pins")
 ---@field expr string
 ---@field mark? integer its extmark (follows the line), in the file's buffer
 
-M.list = require("dapper.store").get("pins") ---@type dapper.Pin[]
+M.list = {} ---@type dapper.Pin[]
 local values = {} -- expr .. "@" .. path .. ":" .. line -> { text, changed }
 local before = {}
 
@@ -46,9 +46,11 @@ function M.save()
     end, M.list)
   )
 end
+require("dapper.store").track("pins", M.list, M.save)
 
 --- draws the pins of buffer `buf` (all loaded buffers, without one)
 function M.draw(buf)
+  sync_lines() -- (where edits moved them: drawn there)
   if not buf then
     for _, b in ipairs(api.nvim_list_bufs()) do
       if api.nvim_buf_is_loaded(b) then
@@ -138,8 +140,8 @@ function M.toggle(expr)
     return
   end
   local buf = api.nvim_get_current_buf()
-  if vim.bo[buf].buftype ~= "" then
-    return util.notify("Pins go on a line of code", vim.log.levels.WARN)
+  if vim.bo[buf].buftype ~= "" or api.nvim_buf_get_name(buf) == "" then
+    return util.notify("Pins go on a line of a file", vim.log.levels.WARN)
   end
   sync_lines()
   local path = vim.fs.normalize(api.nvim_buf_get_name(buf))

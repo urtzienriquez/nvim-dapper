@@ -79,15 +79,9 @@ function M.update()
     if not first then
       return
     end
-    local scopes = util.cached(session, "scopes", { frameId = frame.id })
     local values = {}
-    for _, scope in ipairs(scopes and scopes.scopes or {}) do
-      if not scope.expensive then
-        local result = util.cached(session, "variables", { variablesReference = scope.variablesReference })
-        for _, var in ipairs(result and result.variables or {}) do
-          values[var.name] = values[var.name] or var.value
-        end
-      end
+    for _, var in ipairs(util.frame_variables(session, frame)) do -- (not registers: sp, pc, ...)
+      values[var.name] = values[var.name] or var.value
     end
     local per_line = {}
     for name, rows in pairs(occurrences(buf, first, last)) do

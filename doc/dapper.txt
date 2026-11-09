@@ -12,7 +12,7 @@ its name, the others by the key that shows them (Watches  S  E  B  C ...).
 Any pane shows any view, and panes split and close like windows.
 
 Getting started: >lua
-  require("dapper").setup()  -- optional: the defaults apply on first use
+  require("dapper").setup()  -- needed: it hooks dapper to nvim-dap
   vim.keymap.set("n", "<leader>dd", "<Cmd>Dapper<CR>")
 <
 Start debugging with nvim-dap as usual: the panes open, and close when it
@@ -34,7 +34,9 @@ VIEWS                                                           *dapper-views*
                   (|dapper-commands|).
   S  Scopes       The variables of the selected frame (the registers
                   collapsed).
-  E  Exceptions   When to stop on exceptions (the debugger's filters).
+  E  Exceptions   When to stop on exceptions (the debugger's filters): nvim-dap's
+                  own setting, dap.defaults[type].exception_breakpoints, shown
+                  and toggled (for the sessions to come too).
   B  Breakpoints  All breakpoints (|dapper-breakpoints|), lines with their
                   code highlighted as in the file.
   C  Call stack   The frames of the stopped thread; the selected one marked.
@@ -110,7 +112,9 @@ both: g? lists the keys; :q closes the tab page, as any window.
 
     f     Find: go to an address (0x...), a variable (its bytes) or an
           expression (*p: what p points to; $sp), with completion; followed
-          at each stop; nothing: back to the frame's variables. Vim's /
+          at each stop (where it cannot be found, as in another function,
+          the frame's variables meanwhile); nothing: back to the frame's
+          variables. Memory that cannot be read shows as ??. Vim's /
           searches the rows shown (c8 01 in the hex, or the text column).
     r     Write bytes at the cursor, in hex: c8, or c8 01 ff.
     [[ ]] A page back / forward.
@@ -161,7 +165,7 @@ The same key does the same in every view:
 And:
   Watches        i a: add an expression above / below; e: edit it.
   Values         [[: go to the parent.
-  Breakpoints    p: show it, the cursor staying.
+  Breakpoints    p: show it (on a line, or a function's), the cursor staying.
   Call stack     o: select the frame and go to its line; t: hide or show
                  the frames of no interest (library code).
   Threads        F: invert the filter.
@@ -224,9 +228,11 @@ line: "⏸ stats.c:42 maximum", "▶ running", "" when not debugging. >lua
 SETUP                                                           *dapper-setup*
 
 require("dapper").setup({opts})                               *dapper.setup()*
-    Optional: without it, the defaults apply on first use. Calling it again
-    applies the new options, and the panes open as its `layout` says (signs
-    already defined stay defined).
+    Needed: it hooks dapper to nvim-dap (until then, dapper does not follow
+    the debugger; :Dapper also does it, with the defaults). Calling it again
+    applies the new options, and the panes open as its `layout` says. The
+    signs and nvim-dap's terminal_win_cmd are set only where they are still
+    nvim-dap's defaults: yours are kept.
 
     position     "right" (default), "left" or "below".
     size         Of the column: a fraction of the screen (0.4), or columns
@@ -245,8 +251,9 @@ require("dapper").setup({opts})                               *dapper.setup()*
                  there (true). nvim-dap's own way moves it.
     signs        Signs for breakpoints and the stop: ● ◆ ◉ → ✗ (true).
     virtual_text The values of the variables of the selected frame, at the
-                 end of the lines where they appear (false). :Dapper
-                 virtual-text turns them on or off for a while.
+                 end of the lines where they appear (false), in the lines on
+                 screen when the program stops. :Dapper virtual-text turns
+                 them on or off for a while.
     controls     Buttons in the panes' bar, for the mouse: continue, step
                  over, into, out, restart, stop (false).
     icons        { collapsed, expanded, enabled, disabled, current }.
