@@ -1,50 +1,42 @@
 --- Breakpoints: all of them: on lines (with their code, highlighted as in the file, and their
---- condition, hit count, log message), on functions, on instructions, and on values changing.
+--- condition, hit count, log message; also those of files not open, and those turned off), on
+--- functions, on instructions, and on values changing.
 
 local util = require("dapper.util")
 
 local M = { label = "Breakpoints", short = "Breaks", key = "B" }
 
 function M.render(canvas)
-  local by_buf = require("dap.breakpoints").get()
-  local bufs = vim.tbl_keys(by_buf)
-  table.sort(bufs, function(a, b)
-    return vim.api.nvim_buf_get_name(a) < vim.api.nvim_buf_get_name(b)
-  end)
   local any = false
-  for _, buf in ipairs(bufs) do
-    local name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":~:.")
-    local list = by_buf[buf]
-    table.sort(list, function(a, b)
-      return a.line < b.line
-    end)
-    for _, bp in ipairs(list) do
-      any = true
-      local rejected = bp.state and bp.state.verified == false
-      local chunks = {
-        { name, rejected and "DapperMuted" or "DapperFile" },
-        { ":" },
-        { tostring(bp.line), "DapperLine" },
-        { "  " },
-      }
-      vim.list_extend(chunks, util.code_chunks(buf, bp.line))
-      for _, extra in ipairs({
-        { bp.condition, "if " },
-        { bp.hitCondition, "hits " },
-        { bp.logMessage, "log " },
-      }) do
-        if extra[1] and extra[1] ~= "" then
-          table.insert(chunks, { "  " .. extra[2] .. extra[1], "DapperMuted" })
-        end
-      end
-      if rejected then
-        table.insert(
-          chunks,
-          { "  (rejected" .. (bp.state.message and (": " .. bp.state.message) or "") .. ")", "DapperError" }
-        )
-      end
-      canvas:add(chunks, { kind = "breakpoint", buf = buf, line = bp.line })
+  local icons = require("dapper.config").values.icons
+  for _, bp in ipairs(require("dapper.lines").all()) do
+    any = true
+    local rejected = bp.state and bp.state.verified == false
+    local muted = rejected or bp.disabled
+    local chunks = {
+      { (bp.disabled and icons.disabled or icons.enabled) .. " ", bp.disabled and "DapperDisabled" or "DapperEnabled" },
+      { vim.fn.fnamemodify(bp.path, ":~:."), muted and "DapperMuted" or "DapperFile" },
+      { ":" },
+      { tostring(bp.line), "DapperLine" },
+      { "  " },
+    }
+    if bp.buf then
+      vim.list_extend(chunks, util.code_chunks(bp.buf, bp.line))
+    else -- (a file not open)
+      table.insert(chunks, { vim.trim(vim.fn.readfile(bp.path, "", bp.line)[bp.line] or ""), "DapperMuted" })
     end
+    for _, extra in ipairs({ { bp.condition, "if " }, { bp.hit, "hit " }, { bp.log, "log " } }) do
+      if extra[1] and extra[1] ~= "" then
+        table.insert(chunks, { "  " .. extra[2] .. extra[1], "DapperMuted" })
+      end
+    end
+    if rejected then
+      table.insert(
+        chunks,
+        { "  (rejected" .. (bp.state.message and (": " .. bp.state.message) or "") .. ")", "DapperError" }
+      )
+    end
+    canvas:add(chunks, vim.tbl_extend("force", bp, { kind = "breakpoint" }))
   end
   local instructions = package.loaded["dapper.views.disassembly"] and require("dapper.views.disassembly").breakpoints
     or {}
@@ -97,8 +89,10 @@ end
 
 -- the buffer and line of the breakpoint of `item` (on a line, or a function placed), or nil
 local function location(item)
-  if item and item.buf then
-    return item.buf, item.line
+  if item and item.kind == "breakpoint" then
+    local buf = item.buf or vim.fn.bufadd(item.path) -- (a file not open: opened)
+    vim.fn.bufload(buf)
+    return buf, item.line
   elseif item and item.kind == "function" and item.source and item.line then
     return util.source_buf(item.source), item.line
   end
@@ -139,18 +133,20 @@ M.keys = {
       elseif item and item.kind == "change" then
         return require("dapper.breaks").toggle_change(item.expr)
       end
-      if not (item and item.buf) then
-        return
+      if item and item.kind == "breakpoint" then
+        require("dapper.lines").delete(item)
+        require("dapper.views").refresh("breakpoints")
       end
-      local breakpoints = require("dap.breakpoints")
-      breakpoints.remove(item.buf, item.line)
-      local session = require("dap").session()
-      if session then
-        local all = breakpoints.get()
-        all[item.buf] = all[item.buf] or {} -- (an empty list clears the file's)
-        session:set_breakpoints(all)
+    end,
+  },
+  {
+    "t",
+    "turn it off, or on again (a breakpoint on a line: kept, ○)",
+    function(item)
+      if item and item.kind == "breakpoint" then
+        require("dapper.lines").toggle(item)
+        require("dapper.views").refresh("breakpoints")
       end
-      require("dapper.views").refresh("breakpoints")
     end,
   },
 }

@@ -12,9 +12,11 @@ dapper-memory	dapper.txt	/*dapper-memory*
 dapper-pins	dapper.txt	/*dapper-pins*
 dapper-setup	dapper.txt	/*dapper-setup*
 dapper-views	dapper.txt	/*dapper-views*
+dapper.clear_breakpoints()	dapper.txt	/*dapper.clear_breakpoints()*
 dapper.complete()	dapper.txt	/*dapper.complete()*
 dapper.conditional_breakpoint()	dapper.txt	/*dapper.conditional_breakpoint()*
 dapper.gdb()	dapper.txt	/*dapper.gdb()*
+dapper.hit_breakpoint()	dapper.txt	/*dapper.hit_breakpoint()*
 dapper.log_point()	dapper.txt	/*dapper.log_point()*
 dapper.setup()	dapper.txt	/*dapper.setup()*
 dapper.status()	dapper.txt	/*dapper.status()*

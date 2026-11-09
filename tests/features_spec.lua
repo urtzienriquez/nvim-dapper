@@ -92,6 +92,34 @@ describe("features", function()
     assert.truthy(vim.tbl_contains(dapper.complete("n + to"), "n + total"))
   end)
 
+  it("shows the values in hex, and back", function()
+    dapper.toggle_hex()
+    dapper.show("scopes")
+    assert.is_true(
+      wait(function()
+        return lines("scopes"):find("n%s+= 0x15") ~= nil
+      end),
+      lines("scopes")
+    )
+    dapper.toggle_hex()
+    assert.is_true(wait(function()
+      return lines("scopes"):find("n%s+= 21") ~= nil
+    end))
+  end)
+
+  it("watches n elements from a pointer: p, 10", function()
+    dapper.watch("&n, 1")
+    dapper.show("watches")
+    assert.is_true(
+      wait(function()
+        return lines("watches"):find("&n, 1%s+= {21}") ~= nil
+      end),
+      lines("watches")
+    )
+    local watches = require("dapper.views.watches")
+    table.remove(watches.expressions, #watches.expressions)
+  end)
+
   it("pins a value to a line, shown at each stop", function()
     api.nvim_set_current_win(code_win)
     api.nvim_win_set_cursor(0, { 11, 4 })
@@ -122,9 +150,12 @@ describe("features", function()
       return #require("dapper.breaks").changes == 1
     end))
     dapper.show("breakpoints")
-    assert.is_true(wait(function()
-      return lines("breakpoints"):find("⊙ n  (when it changes)", 1, true) ~= nil
-    end))
+    assert.is_true(
+      wait(function()
+        return lines("breakpoints"):find("⊙ n  (when it changes)", 1, true) ~= nil
+      end),
+      lines("breakpoints")
+    )
     dap.continue()
     assert.is_true(stopped_at(2, function()
       return frame().line ~= 10

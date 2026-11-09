@@ -20,9 +20,12 @@ local SUBCOMMANDS = {
   ["break-change"] = { "break_on_change", complete = "expressions" },
   condition = { "conditional_breakpoint" },
   log = { "log_point" },
+  hits = { "hit_breakpoint" },
+  clear = { "clear_breakpoints" },
   pin = { "pin", complete = "expressions" },
   jump = { "jump" },
   ["virtual-text"] = { "toggle_virtual_text" },
+  hex = { "toggle_hex" },
 }
 
 local function matching(list, lead)

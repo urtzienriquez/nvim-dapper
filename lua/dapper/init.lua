@@ -180,6 +180,10 @@ local function listen()
   after.event_thread[id] = function()
     refresh("threads")
   end
+  -- the files with breakpoints opened (unseen) before nvim-dap sends the breakpoints: all are sent
+  before.event_initialized[id] = function()
+    require("dapper.lines").load_all()
+  end
   after.event_initialized[id] = function(session)
     redraw_status()
     refresh("exceptions")
@@ -301,22 +305,38 @@ function M.setup(opts)
       end
     end,
   })
-  api.nvim_create_autocmd("BufReadPost", { -- a file with pins, opened
+  -- breakpoints on lines and pins, kept per project: given back to a file opened, kept where
+  -- edits moved them
+  local lines = require("dapper.lines")
+  api.nvim_create_autocmd("BufReadPost", {
     group = "dapper",
     callback = function(ev)
+      lines.restore(ev.buf)
       if package.loaded["dapper.pins"] then
         require("dapper.pins").draw(ev.buf)
       end
     end,
   })
-  api.nvim_create_autocmd("VimLeavePre", { -- the pins where their lines moved to
+  api.nvim_create_autocmd("BufUnload", {
+    group = "dapper",
+    callback = function(ev)
+      lines.unloading(ev.buf)
+    end,
+  })
+  api.nvim_create_autocmd({ "BufWritePost", "VimLeavePre" }, {
     group = "dapper",
     callback = function()
+      lines.save()
       if package.loaded["dapper.pins"] then
         require("dapper.pins").save()
       end
     end,
   })
+  for _, buf in ipairs(api.nvim_list_bufs()) do -- (files open before setup())
+    if api.nvim_buf_is_loaded(buf) then
+      lines.restore(buf)
+    end
+  end
   if not set_up then
     listen()
   end
@@ -455,6 +475,50 @@ function M.conditional_breakpoint()
   }, function(condition)
     if condition and vim.trim(condition) ~= "" then -- (its hit count and log message kept)
       require("dap").set_breakpoint(vim.trim(condition), existing.hitCondition, existing.logMessage)
+    end
+  end)
+end
+
+--- deletes all breakpoints: on lines (of every file, also those turned off: kept per project, so
+--- nvim-dap's clear_breakpoints(), which knows only the files open, is not enough), on functions,
+--- on instructions, and on values changing
+function M.clear_breakpoints()
+  ensure()
+  require("dapper.lines").clear()
+  require("dapper.breaks").clear()
+  if package.loaded["dapper.views.disassembly"] then
+    local disassembly = require("dapper.views.disassembly")
+    disassembly.breakpoints = {}
+    disassembly.send()
+  end
+  views().refresh("breakpoints")
+  views().refresh("disassembly")
+  require("dapper.util").notify("All breakpoints deleted")
+end
+
+--- values in hex, or not (in Watches, Scopes, the hover float, inline values and pins)
+function M.toggle_hex()
+  ensure()
+  local util = require("dapper.util")
+  util.hex = not util.hex
+  util.notify(util.hex and "Values in hex" or "Values as they are")
+  if package.loaded["dap"] and require("dap").session() then
+    util.values_changed()
+  end
+end
+
+--- a breakpoint on the cursor's line that stops on its Nth hit (asked; the line's own to edit; its
+--- condition and log message kept). <Esc>, or nothing typed: none.
+function M.hit_breakpoint()
+  ensure()
+  local existing = breakpoint_here()
+  if existing == false then
+    return
+  end
+  existing = existing or {}
+  vim.ui.input({ prompt = "Stop on hit number: ", default = existing.hitCondition }, function(hits)
+    if hits and vim.trim(hits) ~= "" then
+      require("dap").set_breakpoint(existing.condition, vim.trim(hits), existing.logMessage)
     end
   end)
 end
@@ -602,6 +666,9 @@ function M.palette()
     { "Disassembly of this line", M.disassembly, stop = true, code = true, cmd = "disassembly" },
     { "Break on this line, if…", M.conditional_breakpoint, code = true, cmd = "condition", fn = M.conditional_breakpoint },
     { "Log on this line (a log point)…", M.log_point, code = true, cmd = "log", fn = M.log_point },
+    { "Break on this line on its Nth hit…", M.hit_breakpoint, code = true, cmd = "hits", fn = M.hit_breakpoint },
+    { "Run to this line", require("dap").run_to_cursor, stop = true, code = true, fn = require("dap").run_to_cursor },
+    { "Delete all breakpoints", M.clear_breakpoints, cmd = "clear", fn = M.clear_breakpoints },
     {
       "Break on a function…",
       ask("Break on function: ", "customlist,v:lua.require'dapper.complete'.functions", M.break_on),
@@ -615,6 +682,7 @@ function M.palette()
     { "Pin a value to this line…", ask("Pin: ", complete, M.pin), code = true, cmd = "pin" },
     { "Go on from this line (set next statement)", M.jump, stop = true, code = true, cmd = "jump" },
     { "Inline values on or off", M.toggle_virtual_text, cmd = "virtual-text" },
+    { "Values in hex on or off", M.toggle_hex, cmd = "hex" },
     {
       "Check the setup (:checkhealth dapper)",
       function()

@@ -50,6 +50,9 @@ Variables show as `name = value  type`, the values of siblings lined up.
 A struct or array shows what it holds in one line, also collapsed (gdb gives
 them no value of their own): `{mass = 20, id = 7, pos = {…}}`, `{1, 2, 3}`.
 Values that changed since the last stop are highlighted (|hl-DapperChanged|).
+With gdb, `p, 10` watches 10 elements from pointer p (an array made with
+malloc), as raddebugger writes it (gdb's *p@10). :Dapper hex shows all values
+in hex, and back.
 
                                                              *dapper-commands*
 Watches also take the debugger's commands, as typed in its REPL, and show
@@ -67,9 +70,14 @@ spaces: `x / 2` (`x/2` is gdb's x command).
 ==============================================================================
 BREAKPOINTS                                               *dapper-breakpoints*
 
-  On a line           nvim-dap's own (toggle_breakpoint). With a condition,
-                      or as a log point: |dapper.conditional_breakpoint()|,
-                      |dapper.log_point()|.
+  On a line           nvim-dap's own (toggle_breakpoint), kept per project
+                      (nvim-dap forgets them when Neovim quits): a file
+                      opened gets its own back, and the files with
+                      breakpoints are opened (unseen) when a session starts,
+                      so that all are sent. With a condition, as a log
+                      point, or stopping on its Nth hit:
+                      |dapper.conditional_breakpoint()|, |dapper.log_point()|,
+                      |dapper.hit_breakpoint()|.
   On a function       :Dapper break {name} (it completes the program's
                       functions). Kept per project.
   When a value        x on a variable in Watches, Scopes or the hover float,
@@ -79,7 +87,16 @@ BREAKPOINTS                                               *dapper-breakpoints*
                       returned). For the session only.
   On an instruction   x in Disassembly. Kept from session to session.
 
-All are listed in the Breakpoints view; d deletes one there.
+All are listed in the Breakpoints view, also those of files not open; d
+deletes one there, and t turns one on a line off without deleting it (○, in
+the view and in the code; kept per project too), or on again. The palette has
+"Run to this line" (nvim-dap's run_to_cursor()).
+
+                                                  *dapper.clear_breakpoints()*
+require("dapper").clear_breakpoints() (:Dapper clear) deletes all breakpoints,
+of every kind: on lines (also of files not open, and turned off: nvim-dap's
+own clear_breakpoints() knows only those of the files open), on functions, on
+instructions, and on values changing.
 
 ==============================================================================
 PINS                                                             *dapper-pins*
@@ -190,10 +207,15 @@ COMMANDS                                                             *:Dapper*
 :Dapper break-change [{expr}] Break when {expr} changes (or no more).
 :Dapper condition             See |dapper.conditional_breakpoint()|.
 :Dapper log                   See |dapper.log_point()|.
+:Dapper hits                  See |dapper.hit_breakpoint()|.
+:Dapper clear                 See |dapper.clear_breakpoints()|.
 :Dapper pin [{expr}]          See |dapper-pins|.
 :Dapper jump            Set next statement: the program goes on from the
                         cursor's line; the lines between are not run.
 :Dapper virtual-text    Turn the values in the code on or off.
+:Dapper hex             All values in hex (Watches, Scopes, the hover float,
+                        inline values, pins; the debugger formats them), or
+                        not.
 
 The commands complete: views, the program's functions, and expressions: the
 selected frame's variables, the members after . or ->, and the names of the
@@ -214,6 +236,10 @@ require("dapper").log_point()
     A log point on the cursor's line: a message printed in the REPL instead
     of stopping, with the values of the expressions in {} ("n is {n}").
     <Esc>, or nothing typed: none.
+                                                     *dapper.hit_breakpoint()*
+require("dapper").hit_breakpoint()
+    A breakpoint on the cursor's line that stops on its Nth hit (asked; its
+    condition and log message kept). <Esc>, or nothing typed: none.
                                                            *dapper.complete()*
 The same completion, for prompts of your own: >lua
   vim.fn.input({ prompt = "Condition: ",
@@ -262,8 +288,10 @@ require("dapper").setup({opts})                               *dapper.setup()*
                  (more in a long function), and whether their bytes are too.
 
                                                                  *dapper-kept*
-The watches, pins and function breakpoints of each project (its git root,
-else the working directory) are kept in stdpath("data")/dapper.json.
+The watches, pins and breakpoints (on lines, also those turned off, and on
+functions) of each project (its git root, else the working directory) are
+kept in stdpath("data")/dapper.json. After :cd to another project, its own
+are used.
 
 ==============================================================================
 GDB                                                               *dapper-gdb*

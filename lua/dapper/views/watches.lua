@@ -34,6 +34,15 @@ function M.command(expr)
   end
 end
 
+--- `p, 10` (raddebugger's way): 10 elements from pointer p, gdb's `*(p)@10`. With gdb only (in
+--- Python, `p, 10` is a tuple). nil: `expr` is no such thing.
+function M.array(expr, session)
+  local base, count = expr:match("^(.-)%s*,%s*(%d+)%s*$")
+  if base and base ~= "" and session and (session.config.type or ""):find("gdb") then
+    return "*(" .. base .. ")@" .. count
+  end
+end
+
 local width = 0 -- the expressions' names are padded to it (their values line up)
 local function pad(expr)
   return string.rep(" ", width - vim.fn.strdisplaywidth(expr)) .. " = "
@@ -81,8 +90,9 @@ function M.render(canvas, session)
     local path = "watch:" .. expr
     local command = M.command(expr)
     local result, err
+    local value_expr = M.array(expr, session) or expr -- (what is evaluated: p, 10 is *(p)@10)
     if not command and session and session.stopped_thread_id then
-      result, err = util.evaluate(session, expr)
+      result, err = util.evaluate(session, value_expr)
     end
     if command then
       draw_command(canvas, session, i, expr, command, path)
@@ -91,7 +101,7 @@ function M.render(canvas, session)
       -- a pointer shown without its address (gdb prints a char pointer as the string it points
       -- to): the address first, as gdb's own print does
       if result.type and result.type:match("%*%s*$") and not value:match("^0x") then
-        local address = util.evaluate(session, "(void *)(" .. expr .. ")")
+        local address = util.evaluate(session, "(void *)(" .. value_expr .. ")")
         if address and address.result:match("^0x") then
           value = address.result .. " " .. value
         end
@@ -100,7 +110,7 @@ function M.render(canvas, session)
       -- a pointer the debugger gives nothing to expand (gdb, a char pointer: it is shown as a
       -- string): what it points to, as its child (set with s, as an expression)
       if result.type and result.type:match("%*%s*$") and (result.variablesReference or 0) == 0 then
-        local target = expr:match("^&[%w_]+$") and ("*" .. expr) or ("*(" .. expr .. ")")
+        local target = value_expr:match("^&[%w_]+$") and ("*" .. value_expr) or ("*(" .. value_expr .. ")")
         local pointed = util.evaluate(session, target)
         if pointed then
           var.children = {
@@ -114,7 +124,7 @@ function M.render(canvas, session)
         end
       end
       local row = #canvas.lines + 1
-      M.tree:variable(canvas, session, var, path, nil, 0, nil, width)
+      M.tree:variable(canvas, session, var, path, nil, 0, value_expr, width)
       canvas.items[row].index = i
     else
       no_value(canvas, session, i, expr, err)

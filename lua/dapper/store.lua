@@ -47,10 +47,10 @@ function M.set(key, list)
 end
 
 --- Fills `list` with the list `key` of the current project (each item made with `load`, if
---- given), and keeps it that project's: when the project changes, `save()` writes it, and it is
---- filled again with the new project's. Returns `list`.
-function M.track(key, list, save, load)
-  tracked[key] = { list = list, save = save, load = load }
+--- given), and keeps it that project's: when the project changes, `save()` writes it, it is
+--- filled again with the new project's, and `reloaded()` is called. Returns `list`.
+function M.track(key, list, save, load, reloaded)
+  tracked[key] = { list = list, save = save, load = load, reloaded = reloaded }
   for i, item in ipairs(M.get(key)) do
     list[i] = load and load(item) or item
   end
@@ -72,6 +72,9 @@ function M.track(key, list, save, load)
           end
           for i, item in ipairs(M.get(k)) do
             t.list[i] = t.load and t.load(item) or item
+          end
+          if t.reloaded then
+            t.reloaded()
           end
         end
         if package.loaded["dapper.pins"] then

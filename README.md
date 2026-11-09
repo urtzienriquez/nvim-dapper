@@ -42,14 +42,20 @@ adds one. `:checkhealth dapper` checks it all, with the fix for what is missing.
 - Watches also take the debugger's own commands, as typed in its REPL: with gdb, `p/t n`,
   `x/8xb &n`, `info frame`, and `/t n` for short (`print/t n`). (A division is written with
   spaces, `x / 2`: `x/2` is gdb's `x` command.)
+- With gdb, `p, 10` watches 10 elements from pointer `p` (an array made with `malloc`), as
+  raddebugger writes it (gdb's `*p@10`).
+- `:Dapper hex` shows all values in hex (Watches, Scopes, the hover float, inline values, pins),
+  and back.
 - Optionally (`virtual_text = true`), the variables' values are also shown at the end of their
   lines in the code.
 
 ## Breakpoints, of every kind
 
-- **On a line**: nvim-dap's own (`toggle_breakpoint`). With a condition or as a log point:
-  `require("dapper").conditional_breakpoint()` / `log_point()` (or `:Dapper condition` / `log`):
-  they ask for it with completion, offer the line's own to edit, and `<Esc>` sets nothing.
+- **On a line**: nvim-dap's own (`toggle_breakpoint`), kept per project: they come back when you
+  open Neovim again (nvim-dap forgets them). With a condition, as a log point, or stopping on its
+  Nth hit: `require("dapper").conditional_breakpoint()` / `log_point()` / `hit_breakpoint()` (or
+  `:Dapper condition` / `log` / `hits`): they ask for it (with completion), offer the line's own
+  to edit, keep the rest of it, and `<Esc>` sets nothing.
 - **On a function**, by name: `:Dapper break malloc` (completes the program's functions). Kept
   per project.
 - **When a value changes**: `x` on a variable (Watches, Scopes, hover), or `:Dapper break-change
@@ -57,7 +63,10 @@ adds one. `:checkhealth dapper` checks it all, with the fix for what is missing.
   catches changes after the function returned.)
 - **On an instruction**: `x` in Disassembly.
 
-All are listed in the Breakpoints view; `d` deletes one there.
+All are listed in the Breakpoints view (also those of files not open); `d` deletes one there, and
+`t` turns one on a line off without deleting it (`○`, in the view and in the code), or on again.
+`require("dapper").clear_breakpoints()` (`:Dapper clear`) deletes them all, of every kind: also
+those of files not open and those turned off, which nvim-dap's `clear_breakpoints()` does not know.
 
 ## Pins
 
@@ -115,6 +124,8 @@ The same key does the same everywhere:
 | `s` / `c` | set / copy a value |
 | `f` | find (Memory, Disassembly); filter the frames (Threads) |
 
+The palette (`:Dapper`) also has "Run to this line" (nvim-dap's `run_to_cursor()`).
+
 And: Watches `i` / `a` add above / below, `e` edit; `[[` the parent of a value; Breakpoints `p`
 shows it (on a line, or a function's) without leaving; Call stack `o` goes to the frame's line, `t` hides library frames;
 Threads `F` inverts the filter.
@@ -132,10 +143,12 @@ them (to learn them). Or directly:
 | `:Dapper hover [expr]` | its value in a float, as a tree; again: into it (`q` closes it) |
 | `:Dapper memory [expr]` / `disassembly [expr]` | see above |
 | `:Dapper break {function}` / `break-change [expr]` | break on a function / when a value changes |
-| `:Dapper condition` / `log` | a breakpoint on the cursor's line with a condition / a log point |
+| `:Dapper condition` / `log` / `hits` | a breakpoint on the cursor's line with a condition / a log point / on its Nth hit |
 | `:Dapper pin [expr]` | pin a value to the cursor's line |
 | `:Dapper jump` | set next statement: go on from the cursor's line (the lines between are not run) |
 | `:Dapper virtual-text` | the values in the code, on or off |
+| `:Dapper hex` | the values in hex, or not |
+| `:Dapper clear` | delete all breakpoints, of every kind |
 
 They complete: views, the program's functions, and expressions: the selected frame's variables,
 the members after `.` or `->`, and the names of the file you are in (so a condition can be
@@ -211,8 +224,9 @@ program loads without their line (nvim-dap then marked all but one as rejected).
 
 ## Kept per project
 
-The watches, pins and function breakpoints of each project (its git root, else the working
-directory) are kept in `stdpath("data")/dapper.json`.
+The watches, pins and breakpoints (on lines, also those turned off, and on functions) of each
+project (its git root, else the working directory) are kept in `stdpath("data")/dapper.json`.
+After `:cd` to another project, its own are used.
 
 ## Tests
 

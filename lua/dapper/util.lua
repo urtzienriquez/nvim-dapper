@@ -227,8 +227,23 @@ function M.explain(msg)
 end
 
 --- a request to the session, waited for (in a coroutine): result, or nil and the error
+M.hex = false -- values in hex (:Dapper hex): the debugger formats them (DAP's value format)
+
+-- `args` of request `command`, with the value format (hex) where the debugger takes one
+local function formatted(session, command, args)
+  if
+    M.hex
+    and (command == "variables" or (command == "evaluate" and args.context ~= "repl")) -- (not commands)
+    and session.capabilities
+    and session.capabilities.supportsValueFormattingOptions
+  then
+    return vim.tbl_extend("force", args, { format = { hex = true } })
+  end
+  return args
+end
+
 function M.request(session, command, args)
-  local err, result = session:request(command, args)
+  local err, result = session:request(command, formatted(session, command, args))
   if err then
     return nil, M.explain(err.message or tostring(err))
   end
@@ -254,7 +269,7 @@ function M.requests(session, list)
     return results
   end
   for i, item in ipairs(list) do
-    session:request(item[1], item[2], function(err, result)
+    session:request(item[1], formatted(session, item[1], item[2]), function(err, result)
       results[i] = not err and result or nil
       pending = pending - 1
       if pending == 0 and waiting then

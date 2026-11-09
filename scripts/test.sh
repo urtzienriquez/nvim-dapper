@@ -18,13 +18,18 @@ clone() { # env var, repository, folder
 clone PLENARY_PATH https://github.com/nvim-lua/plenary.nvim plenary.nvim
 clone DAP_PATH https://github.com/mfussenegger/nvim-dap nvim-dap
 
-# what the tests keep (watches, pins, ...) goes to a folder of their own
-XDG_DATA_HOME="$(mktemp -d)"
-export XDG_DATA_HOME
-trap 'rm -rf "$XDG_DATA_HOME"' EXIT
-
 target="${1:-$root/tests}"
 
-nvim --headless --noplugin \
-  -u "$root/tests/minimal_init.lua" \
-  -c "PlenaryBustedDirectory $target { minimal_init = '$root/tests/minimal_init.lua', sequential = true }"
+# each spec file in a Neovim of its own, with a data folder of its own: what one keeps per project
+# (watches, breakpoints, ...) does not reach the next
+status=0
+for spec in $(if [ -d "$target" ]; then ls "$target"/*_spec.lua; else echo "$target"; fi); do
+  XDG_DATA_HOME="$(mktemp -d)"
+  export XDG_DATA_HOME
+  nvim --headless --noplugin \
+    -u "$root/tests/minimal_init.lua" \
+    -c "PlenaryBustedDirectory $spec { minimal_init = '$root/tests/minimal_init.lua', sequential = true }" ||
+    status=1
+  rm -rf "$XDG_DATA_HOME"
+done
+exit $status

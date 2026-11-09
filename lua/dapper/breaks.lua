@@ -164,6 +164,28 @@ function M.toggle_change(expr, item)
   end)
 end
 
+--- deletes them all: on functions (kept no more), and on values changing (the debugger told)
+function M.clear()
+  for i = #M.functions, 1, -1 do
+    M.functions[i] = nil
+  end
+  save_functions()
+  M.send_functions() -- (an empty list: the session's go)
+  local changes, session = M.changes, require("dap").session()
+  M.changes = {}
+  if session and #changes > 0 then
+    util.run(function()
+      if gdb_like(session) then
+        for _, c in ipairs(changes) do
+          util.evaluate(session, "delete " .. c.id, "repl")
+        end
+      else
+        send_data(session) -- (none)
+      end
+    end)
+  end
+end
+
 --- the session ended: its value watches go with it
 function M.session_ended()
   M.changes = {}
