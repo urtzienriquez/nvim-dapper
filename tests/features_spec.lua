@@ -243,6 +243,25 @@ describe("features", function()
     assert.truthy(vim.tbl_contains(labels, "Memory: the frame's variables"))
   end)
 
+  it("puts the palette's actions that take a value on the command line, to edit", function()
+    api.nvim_set_current_win(code_win)
+    local util = require("dapper.util")
+    local select, cmdline, fed = vim.ui.select, util.cmdline, nil
+    vim.ui.select = function(items, opts, cb)
+      for _, item in ipairs(items) do
+        if opts.format_item(item):find("^Watch an expression") then
+          return cb(item)
+        end
+      end
+    end
+    util.cmdline = function(text)
+      fed = text
+    end
+    dapper.palette()
+    vim.ui.select, util.cmdline = select, cmdline
+    assert.truthy(fed and fed:find("^Dapper watch "), fed)
+  end)
+
   it("checks the setup (:checkhealth dapper)", function()
     vim.cmd("checkhealth dapper")
     local text = ""

@@ -468,7 +468,7 @@ function M.conditional_breakpoint()
     return
   end
   existing = existing or {}
-  vim.ui.input({
+  require("dapper.util").prompt({
     prompt = "Break if: ",
     default = existing.condition,
     completion = "customlist,v:lua.require'dapper'.complete",
@@ -516,7 +516,7 @@ function M.hit_breakpoint()
     return
   end
   existing = existing or {}
-  vim.ui.input({ prompt = "Stop on hit number: ", default = existing.hitCondition }, function(hits)
+  require("dapper.util").prompt({ prompt = "Stop on hit number: ", default = existing.hitCondition }, function(hits)
     if hits and vim.trim(hits) ~= "" then
       require("dap").set_breakpoint(existing.condition, vim.trim(hits), existing.logMessage)
     end
@@ -532,7 +532,7 @@ function M.log_point()
     return
   end
   existing = existing or {}
-  vim.ui.input({
+  require("dapper.util").prompt({
     prompt = "Log (expressions in {}): ",
     default = existing.logMessage,
     completion = "customlist,v:lua.require'dapper'.complete",
@@ -623,6 +623,13 @@ function M.complete(lead)
   return require("dapper.complete").expressions(lead)
 end
 
+--- dapper's prompt (vim.ui.input's options), where <C-f> opens a window to edit the line in;
+--- waited for, so in a coroutine, as nvim-dap's configuration functions run: the typed text, or
+--- nil when cancelled
+function M.input(opts)
+  return require("dapper.util").input(opts)
+end
+
 --- :Dapper: every action, to pick from (those that need a stopped program, while it is)
 function M.palette()
   ensure()
@@ -631,8 +638,13 @@ function M.palette()
   local expr = in_code and util.expression() or ""
   local session = package.loaded["dap"] and require("dap").session()
   local stopped = session and session.stopped_thread_id
-  local function ask(prompt, completion, fn)
+  -- an action that takes a value: with a :Dapper subcommand (`cmd`), that put on the command line
+  -- to be edited there (where <C-f> opens the command-line window); else asked
+  local function ask(prompt, completion, fn, cmd)
     return function()
+      if cmd then
+        return util.cmdline(("Dapper %s %s"):format(cmd, expr))
+      end
       util.run(function()
         local value = util.input({ prompt = prompt, default = expr, completion = completion })
         if value and vim.trim(value) ~= "" then
@@ -646,9 +658,9 @@ function M.palette()
   -- (cmd: the :Dapper subcommand, or fn: the function, that a key of yours may run)
   local actions = {
     { "Open or close the panes", M.toggle, cmd = "toggle" },
-    { "Watch an expression…", ask("Watch: ", complete, M.watch), cmd = "watch" },
-    { "Show a value (hover)…", ask("Value of: ", complete, M.hover), stop = true, cmd = "hover" },
-    { "Memory at…", ask("Memory at: ", complete, M.memory), stop = true, cmd = "memory" },
+    { "Watch an expression…", ask("Watch: ", complete, M.watch, "watch"), cmd = "watch" },
+    { "Show a value (hover)…", ask("Value of: ", complete, M.hover, "hover"), stop = true, cmd = "hover" },
+    { "Memory at…", ask("Memory at: ", complete, M.memory, "memory"), stop = true, cmd = "memory" },
     {
       "Memory: the frame's variables",
       function()
@@ -671,15 +683,15 @@ function M.palette()
     { "Delete all breakpoints", M.clear_breakpoints, cmd = "clear", fn = M.clear_breakpoints },
     {
       "Break on a function…",
-      ask("Break on function: ", "customlist,v:lua.require'dapper.complete'.functions", M.break_on),
+      ask("Break on function: ", "customlist,v:lua.require'dapper.complete'.functions", M.break_on, "break"),
     },
     {
       "Break when a value changes…",
-      ask("Break when it changes: ", complete, M.break_on_change),
+      ask("Break when it changes: ", complete, M.break_on_change, "break-change"),
       stop = true,
       cmd = "break-change",
     },
-    { "Pin a value to this line…", ask("Pin: ", complete, M.pin), code = true, cmd = "pin" },
+    { "Pin a value to this line…", ask("Pin: ", complete, M.pin, "pin"), code = true, cmd = "pin" },
     { "Go on from this line (set next statement)", M.jump, stop = true, code = true, cmd = "jump" },
     { "Inline values on or off", M.toggle_virtual_text, cmd = "virtual-text" },
     { "Values in hex on or off", M.toggle_hex, cmd = "hex" },

@@ -17,6 +17,7 @@ dapper.complete()	dapper.txt	/*dapper.complete()*
 dapper.conditional_breakpoint()	dapper.txt	/*dapper.conditional_breakpoint()*
 dapper.gdb()	dapper.txt	/*dapper.gdb()*
 dapper.hit_breakpoint()	dapper.txt	/*dapper.hit_breakpoint()*
+dapper.input()	dapper.txt	/*dapper.input()*
 dapper.log_point()	dapper.txt	/*dapper.log_point()*
 dapper.setup()	dapper.txt	/*dapper.setup()*
 dapper.status()	dapper.txt	/*dapper.status()*

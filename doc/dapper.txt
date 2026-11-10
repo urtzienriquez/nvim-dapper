@@ -191,7 +191,12 @@ And:
 COMMANDS                                                             *:Dapper*
 
 :Dapper                 The actions available now, to pick from, with the
-                        keys you mapped to them (to learn them).
+                        keys you mapped to them (to learn them). Those that
+                        take a value and have a subcommand (watch, hover,
+                        memory, break, break-change, pin) put it on the
+                        command line, with the expression under the cursor,
+                        to edit there (|c_CTRL-F| opens the command-line
+                        window).
 :Dapper toggle | open | close
                         The panes.
 :Dapper show {view}     Show {view} in a pane (opening them).
@@ -220,6 +225,10 @@ COMMANDS                                                             *:Dapper*
 The commands complete: views, the program's functions, and expressions: the
 selected frame's variables, the members after . or ->, and the names of the
 file you are in (so a condition can be completed before the program runs).
+
+At dapper's prompts (a condition, a log message, a watch to edit, ...), which
+cannot open the command-line window, CTRL-F opens a window much like it
+instead: <CR> uses the line under the cursor, closing the window cancels.
 No keys are mapped; for example: >lua
   vim.keymap.set("n", "<leader>dd", "<Cmd>Dapper<CR>")
   vim.keymap.set("n", "<leader>dv", "<Cmd>Dapper toggle<CR>")
@@ -244,6 +253,17 @@ require("dapper").hit_breakpoint()
 The same completion, for prompts of your own: >lua
   vim.fn.input({ prompt = "Condition: ",
     completion = "customlist,v:lua.require'dapper'.complete" })
+<
+                                                              *dapper.input()*
+require("dapper").input({opts})
+    dapper's prompt ({opts} as |vim.ui.input()|'s), where CTRL-F opens a
+    window to edit the line in. It waits, so it runs in a coroutine, as the
+    functions of nvim-dap's configurations do. Returns the text typed, or nil
+    when cancelled. >lua
+      program = function()
+        return require("dapper").input({ prompt = "Path to executable: ",
+          default = vim.fn.getcwd() .. "/", completion = "file" })
+      end,
 <
                                                              *dapper.status()*
 require("dapper").status() says what the debugger is doing, for a status

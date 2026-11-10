@@ -133,7 +133,10 @@ Threads `F` inverts the filter.
 ## Commands
 
 `:Dapper` alone lists the actions available now, to pick from, with the keys you mapped to
-them (to learn them). Or directly:
+them (to learn them); those that take a value (watch, hover, memory, break, pin...) put their
+`:Dapper` command on the command line to edit, where `<C-f>` opens the command-line window. At
+dapper's own prompts (a condition, a log message...), `<C-f>` opens a window much like it. Or
+directly:
 
 | Command | |
 |---|---|
@@ -169,6 +172,15 @@ The same completion, for prompts of your own:
 
 ```lua
 vim.fn.input({ prompt = "Condition: ", completion = "customlist,v:lua.require'dapper'.complete" })
+```
+
+`require("dapper").input(opts)` is dapper's prompt (`vim.ui.input`'s options, `<C-f>` to edit the
+line in a window), for your nvim-dap configurations' functions (it waits, in their coroutine):
+
+```lua
+program = function()
+  return require("dapper").input({ prompt = "Path to executable: ", default = vim.fn.getcwd() .. "/", completion = "file" })
+end,
 ```
 
 ## Status line
