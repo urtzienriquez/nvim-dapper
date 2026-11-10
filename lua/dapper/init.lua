@@ -345,6 +345,12 @@ function M.setup(opts)
   if dap.adapters.gdb == nil and vim.fn.executable("gdb") == 1 then
     dap.adapters.gdb = M.gdb()
   end
+  -- "Launch" and "Attach to process" in its list (in the `configurations` filetypes)
+  if type(dap.providers) == "table" and type(dap.providers.configs) == "table" then
+    dap.providers.configs.dapper = function(bufnr)
+      return require("dapper.configurations").provider(bufnr)
+    end
+  end
   apply_keep_cursor()
   set_up = true
 end

@@ -25,6 +25,8 @@ M.defaults = {
   icons = { collapsed = "▸", expanded = "▾", enabled = "●", disabled = "○", current = "→" },
   memory = { columns = 16, rows = 64 }, -- the Memory view: bytes a row, rows shown
   disassembly = { instructions = 100, bytes = false }, -- instructions shown; their bytes too
+  -- "Launch" and "Attach to process" (gdb) in nvim-dap's list, in these filetypes (false: none)
+  configurations = { "c", "cpp", "fortran", "zig", "rust" }, ---@type string[]|false
 }
 
 ---@type dapper.Config
@@ -37,6 +39,9 @@ function M.set(opts)
   end
   if opts and opts.views then
     M.values.views = opts.views
+  end
+  if opts and opts.configurations ~= nil then
+    M.values.configurations = opts.configurations
   end
 end
 

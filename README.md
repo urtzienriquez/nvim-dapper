@@ -19,7 +19,9 @@ vim.keymap.set("n", "<leader>dd", "<Cmd>Dapper<CR>") -- every action, to pick fr
 Start debugging with nvim-dap as usual: the panes open (Watches above the call stack) and close
 when it ends. `g?` in any pane lists its keys, and `:Dapper` alone lists everything you can do
 now. For gdb (C, C++, ...) there is nothing more to set up: if you have no gdb adapter, `setup()`
-adds one. `:checkhealth dapper` checks it all, with the fix for what is missing.
+adds one, and nvim-dap's list (`require("dap").continue()`) gets "Launch" (a program, asked, with
+its arguments) and "Attach to process", after your own configurations (`configurations = false`
+leaves them out). `:checkhealth dapper` checks it all, with the fix for what is missing.
 
 ## Views
 
@@ -217,6 +219,7 @@ require("dapper").setup({
   icons = { collapsed = "▸", expanded = "▾", enabled = "●", disabled = "○", current = "→" },
   memory = { columns = 16, rows = 64 },                -- bytes a row, rows shown
   disassembly = { instructions = 100, bytes = false }, -- instructions shown; their bytes too
+  configurations = { "c", "cpp", "fortran", "zig", "rust" }, -- Launch / Attach there (false: none)
 })
 ```
 

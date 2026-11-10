@@ -76,16 +76,34 @@ function M.check()
     )
   end
 
+  -- yours, or those of a configuration provider (dapper's, build.nvim's, ...), for a buffer of
+  -- each filetype
   local configured = {}
   for _, ft in ipairs({ "c", "cpp" }) do
-    if dap.configurations[ft] and #dap.configurations[ft] > 0 then
+    local found = dap.configurations[ft] and #dap.configurations[ft] > 0
+    if not found and type(dap.providers) == "table" and type(dap.providers.configs) == "table" then
+      local buf = vim.api.nvim_create_buf(false, true)
+      local eventignore = vim.o.eventignore
+      vim.o.eventignore = "all" -- (no FileType: nothing attaches to this buffer)
+      vim.bo[buf].filetype = ft
+      vim.o.eventignore = eventignore
+      for key, provider in pairs(dap.providers.configs) do
+        if key ~= "dap.launch.json" then
+          local ok, configs = pcall(provider, buf)
+          found = found or (ok and type(configs) == "table" and #configs > 0)
+        end
+      end
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end
+    if found then
       table.insert(configured, ft)
     end
   end
   if #configured == 0 then
     health.warn("No debug configurations for C or C++: nvim-dap does not know how to start them", {
-      "Add some to require('dap').configurations.c (see :help dap-configuration)",
-      "build.nvim gives one that builds first: require('build.dap').configuration()",
+      "dapper's (Launch, Attach to process) are in its list after setup(), unless configurations = false",
+      "build.nvim adds one that builds first, Build & debug",
+      "or add yours to require('dap').configurations.c (see :help dap-configuration)",
     })
   else
     health.ok("Debug configurations for " .. table.concat(configured, ", "))

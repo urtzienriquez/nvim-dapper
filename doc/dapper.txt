@@ -306,6 +306,15 @@ require("dapper").setup({opts})                               *dapper.setup()*
     memory       { columns = 16, rows = 64 }: bytes a row, rows shown.
     disassembly  { instructions = 100, bytes = false }: instructions shown
                  (more in a long function), and whether their bytes are too.
+                                                      *dapper-configurations*
+    configurations
+                 The filetypes where nvim-dap's list (|dap.continue()|) has
+                 dapper's "Launch" (a program, asked, with its arguments; the
+                 last ones offered again) and "Attach to process", for gdb.
+                 Default: { "c", "cpp", "fortran", "zig", "rust" }; false:
+                 none. They come from a configuration provider
+                 (|dap-providers-configs|): your dap.configurations are left
+                 alone, and listed before them.
 
                                                                  *dapper-kept*
 The watches, pins and breakpoints (on lines, also those turned off, and on
