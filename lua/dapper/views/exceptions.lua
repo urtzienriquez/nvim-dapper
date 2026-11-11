@@ -69,7 +69,10 @@ M.keys = {
     "toggle",
     function(item)
       local session = require("dap").session()
-      if not (item and item.filter and session) then
+      if not session then
+        return require("dapper.util").notify("Not debugging", vim.log.levels.WARN)
+      end
+      if not (item and item.filter) then
         return
       end
       local ids = vim.tbl_filter(function(id)
@@ -84,6 +87,7 @@ M.keys = {
         s:set_exception_breakpoints(ids)
       end
       require("dapper.views").refresh("exceptions")
+      require("dapper.util").notify((item.on and "No more stopping on " or "Stopping on ") .. item.filter.label)
     end,
   },
 }

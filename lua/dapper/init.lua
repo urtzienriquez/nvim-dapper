@@ -443,6 +443,7 @@ end
 function M.toggle_virtual_text()
   ensure()
   config.values.virtual_text = not config.values.virtual_text
+  require("dapper.util").notify(config.values.virtual_text and "Inline values on" or "Inline values off")
   if config.values.virtual_text then
     require("dapper.virtual_text").update()
   else
@@ -474,6 +475,7 @@ function M.conditional_breakpoint()
     return
   end
   existing = existing or {}
+  local line = api.nvim_win_get_cursor(0)[1] -- (for the message: the prompt may move the cursor)
   require("dapper.util").prompt({
     prompt = "Break if: ",
     default = existing.condition,
@@ -481,6 +483,7 @@ function M.conditional_breakpoint()
   }, function(condition)
     if condition and vim.trim(condition) ~= "" then -- (its hit count and log message kept)
       require("dap").set_breakpoint(vim.trim(condition), existing.hitCondition, existing.logMessage)
+      require("dapper.util").notify(("Breaking on line %d if %s"):format(line, vim.trim(condition)))
     end
   end)
 end
@@ -522,9 +525,11 @@ function M.hit_breakpoint()
     return
   end
   existing = existing or {}
+  local line = api.nvim_win_get_cursor(0)[1] -- (for the message: the prompt may move the cursor)
   require("dapper.util").prompt({ prompt = "Stop on hit number: ", default = existing.hitCondition }, function(hits)
     if hits and vim.trim(hits) ~= "" then
       require("dap").set_breakpoint(existing.condition, vim.trim(hits), existing.logMessage)
+      require("dapper.util").notify(("Stopping on hit %s of line %d"):format(vim.trim(hits), line))
     end
   end)
 end
@@ -538,6 +543,7 @@ function M.log_point()
     return
   end
   existing = existing or {}
+  local line = api.nvim_win_get_cursor(0)[1] -- (for the message: the prompt may move the cursor)
   require("dapper.util").prompt({
     prompt = "Log (expressions in {}): ",
     default = existing.logMessage,
@@ -545,6 +551,7 @@ function M.log_point()
   }, function(message)
     if message and vim.trim(message) ~= "" then -- (its condition and hit count kept)
       require("dap").set_breakpoint(existing.condition, existing.hitCondition, message)
+      require("dapper.util").notify(("Logging on line %d: %s"):format(line, message))
     end
   end)
 end
@@ -561,6 +568,8 @@ function M.break_on_change(expr)
   expr = expr or require("dapper.util").expression()
   if expr ~= "" then
     require("dapper.breaks").toggle_change(expr)
+  else
+    require("dapper.util").notify("No expression under the cursor", vim.log.levels.WARN)
   end
 end
 

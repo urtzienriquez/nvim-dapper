@@ -242,4 +242,97 @@ describe("views, without a debug session", function()
     assert.same({}, require("dapper.breaks").functions)
     assert.same({}, vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace("dapper.disabled"), 0, -1, {}))
   end)
+
+  describe("says what a key did", function()
+    local messages, notify
+    before_each(function()
+      messages, notify = {}, vim.notify
+      vim.notify = function(msg, level)
+        table.insert(messages, { msg, level or vim.log.levels.INFO })
+      end
+    end)
+    after_each(function()
+      vim.notify = notify
+    end)
+
+    -- runs key `lhs` of view `name` on `item`
+    local function press(name, lhs, item)
+      for _, key in ipairs(require("dapper.views").get(name).keys) do
+        if key[1] == lhs then
+          return key[3](item)
+        end
+      end
+      error("no key " .. lhs)
+    end
+
+    it("adding and deleting a watch", function()
+      local watches = require("dapper.views.watches")
+      for i = #watches.expressions, 1, -1 do
+        table.remove(watches.expressions, i)
+      end
+      dapper.watch("count")
+      press("watches", "d", { kind = "expression", index = 1 })
+      assert.same({}, watches.expressions)
+      assert.same({ { "Watching count" }, { "Stopped watching count" } }, vim.tbl_map(function(m)
+        return { m[1] }
+      end, messages))
+    end)
+
+    it("x on a watch line that is no value warns instead of doing nothing", function()
+      press("watches", "x", { kind = "command", index = 1 })
+      assert.same({ { "Not a value: no breaking when it changes", vim.log.levels.WARN } }, messages)
+    end)
+
+    it("turning a breakpoint off and on again", function()
+      local file = vim.fn.tempname() .. ".c"
+      vim.fn.writefile({ "int a;", "int b;" }, file)
+      vim.cmd("edit " .. file)
+      require("dap").toggle_breakpoint()
+      local lines_ = require("dapper.lines")
+      local function mine()
+        return vim.tbl_filter(function(bp)
+          return bp.path == vim.fs.normalize(file)
+        end, lines_.all())[1]
+      end
+      press("breakpoints", "t", vim.tbl_extend("force", mine(), { kind = "breakpoint" }))
+      press("breakpoints", "t", vim.tbl_extend("force", mine(), { kind = "breakpoint" }))
+      local where = vim.fn.fnamemodify(file, ":~:.") .. ":1"
+      assert.equals("Breakpoint at " .. where .. " off", messages[1][1])
+      assert.equals("Breakpoint at " .. where .. " on", messages[2][1])
+      dapper.clear_breakpoints()
+    end)
+
+    it("inline values on and off", function()
+      dapper.toggle_virtual_text()
+      dapper.toggle_virtual_text()
+      local said = vim.tbl_map(function(m)
+        return m[1]
+      end, messages)
+      table.sort(said)
+      assert.same({ "Inline values off", "Inline values on" }, said)
+    end)
+  end)
+
+  it(":checkhealth dapper checks the other debuggers too (not only gdb)", function()
+    local dap = require("dap")
+    dap.adapters.fake = { type = "executable", command = "no-such-debugger-xyz" }
+    dap.configurations.fakeft = { { type = "fake", request = "launch", name = "x" } }
+    vim.cmd("checkhealth dapper")
+    local text = ""
+    vim.wait(5000, function() -- (filled in as it checks)
+      for _, b in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.bo[b].filetype == "checkhealth" then
+          text = table.concat(vim.api.nvim_buf_get_lines(b, 0, -1, false), "\n")
+        end
+      end
+      return text:find("program being debugged", 1, true) ~= nil
+    end, 20)
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.bo[b].filetype == "checkhealth" then
+        vim.api.nvim_buf_delete(b, { force = true })
+      end
+    end
+    dap.adapters.fake, dap.configurations.fakeft = nil, nil
+    assert.truthy(text:find("fake: no-such-debugger-xyz is not on $PATH (for fakeft)", 1, true), text)
+  end)
 end)

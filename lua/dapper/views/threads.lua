@@ -59,8 +59,12 @@ M.keys = {
       util.run(function()
         local text = util.input({ prompt = "Frames with: ", default = M.filter or "" })
         if text then
+          local had = M.filter
           M.filter = text ~= "" and text or nil
           require("dapper.views").refresh("threads")
+          if had and not M.filter then
+            util.notify("Filter off")
+          end
         end
       end)
     end,
@@ -69,8 +73,12 @@ M.keys = {
     "F",
     "invert the filter",
     function()
+      if not M.filter then
+        return util.notify("No filter to invert (f sets one)", vim.log.levels.WARN)
+      end
       M.invert = not M.invert
       require("dapper.views").refresh("threads")
+      util.notify((M.invert and "Frames without: " or "Frames with: ") .. M.filter)
     end,
   },
 }

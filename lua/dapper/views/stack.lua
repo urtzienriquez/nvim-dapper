@@ -91,6 +91,7 @@ M.keys = {
     function()
       M.hide_subtle = not M.hide_subtle
       require("dapper.views").refresh()
+      util.notify(M.hide_subtle and "Library frames hidden" or "Library frames shown")
     end,
   },
 }

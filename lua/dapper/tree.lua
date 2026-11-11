@@ -194,6 +194,8 @@ function M.keys(refresh)
           end
           if err then
             util.notify("Could not set it: " .. err, vim.log.levels.WARN)
+          else
+            util.notify(item.var.name .. " = " .. value)
           end
           util.values_changed() -- (other views, inline values and pins may show it too)
         end)
@@ -216,6 +218,8 @@ function M.keys(refresh)
       function(item)
         if item and item.expr then
           require("dapper.breaks").toggle_change(item.expr, item)
+        elseif item then
+          util.notify("Not a value: no breaking when it changes", vim.log.levels.WARN)
         end
       end,
     },
@@ -225,6 +229,8 @@ function M.keys(refresh)
       function(item)
         if item and item.expr then
           require("dapper").memory(item.expr)
+        elseif item then
+          util.notify("Not a value: no memory to show", vim.log.levels.WARN)
         end
       end,
     },

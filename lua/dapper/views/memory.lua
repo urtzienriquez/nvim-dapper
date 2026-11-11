@@ -573,8 +573,10 @@ M.keys = {
     function()
       local address = M.byte_under_cursor()
       local session = require("dap").session()
-      if not (address and session) then
-        return
+      if not session then
+        return util.notify("Not debugging", vim.log.levels.WARN)
+      elseif not address then
+        return util.notify("Not on a byte", vim.log.levels.WARN)
       end
       util.run(function()
         local current = bytes[address] and ("%02x"):format(bytes[address]) or ""
@@ -597,6 +599,7 @@ M.keys = {
         if err then
           return util.notify("Could not write: " .. err, vim.log.levels.WARN)
         end
+        util.notify(("Wrote %d byte%s at %s"):format(#chars, #chars == 1 and "" or "s", hex(address)))
         M.cursor = address
         util.values_changed() -- (the variables changed too)
       end)

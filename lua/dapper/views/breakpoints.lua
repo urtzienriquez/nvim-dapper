@@ -98,6 +98,11 @@ local function location(item)
   end
 end
 
+-- file:line of a breakpoint on a line, as the view shows it
+local function where(bp)
+  return vim.fn.fnamemodify(bp.path, ":~:.") .. ":" .. bp.line
+end
+
 M.keys = {
   {
     "<CR>",
@@ -136,6 +141,7 @@ M.keys = {
       if item and item.kind == "breakpoint" then
         require("dapper.lines").delete(item)
         require("dapper.views").refresh("breakpoints")
+        util.notify("Deleted the breakpoint at " .. where(item))
       end
     end,
   },
@@ -144,8 +150,12 @@ M.keys = {
     "turn it off, or on again (a breakpoint on a line: kept, ○)",
     function(item)
       if item and item.kind == "breakpoint" then
+        local was_off = item.disabled
         require("dapper.lines").toggle(item)
         require("dapper.views").refresh("breakpoints")
+        util.notify("Breakpoint at " .. where(item) .. (was_off and " on" or " off"))
+      elseif item then
+        util.notify("Only breakpoints on lines can be turned off (d deletes this one)", vim.log.levels.WARN)
       end
     end,
   },

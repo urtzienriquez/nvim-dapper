@@ -24,6 +24,54 @@ local function has_debug_info(program)
   return out.stdout:find("%.debug_info") ~= nil
 end
 
+--- the adapters besides gdb (yours, or a plugin's: rdap's r, ...): each with the filetypes whose
+--- configurations use it, and whether its program can be found
+local function other_debuggers(dap)
+  health.start("dapper: other debuggers")
+  local names = vim.tbl_filter(function(name)
+    return name ~= "gdb"
+  end, vim.tbl_keys(dap.adapters))
+  table.sort(names)
+  if #names == 0 then
+    return health.info("None besides gdb")
+  end
+  for _, name in ipairs(names) do
+    local filetypes = {}
+    for ft, configs in pairs(dap.configurations) do
+      for _, c in ipairs(type(configs) == "table" and configs or {}) do
+        if type(c) == "table" and c.type == name then
+          table.insert(filetypes, ft)
+          break
+        end
+      end
+    end
+    table.sort(filetypes)
+    local suffix = #filetypes > 0 and (" (for " .. table.concat(filetypes, ", ") .. ")") or ""
+    local adapter = dap.adapters[name]
+    if type(adapter) == "function" then
+      health.ok(name .. ": a function (it runs when a session starts)" .. suffix)
+    elseif type(adapter) == "table" and adapter.type == "executable" and type(adapter.command) == "string" then
+      if vim.fn.executable(adapter.command) == 1 then
+        health.ok(name .. ": " .. adapter.command .. suffix)
+      else
+        health.error(name .. ": " .. adapter.command .. " is not on $PATH" .. suffix, {
+          "Install it, or give its full path as the adapter's command",
+        })
+      end
+    elseif type(adapter) == "table" and adapter.type == "server" then
+      local where = ("%s:%s"):format(adapter.host or "127.0.0.1", tostring(adapter.port or "?"))
+      health.ok(name .. ": a server at " .. where .. suffix)
+    else
+      health.ok(name .. suffix)
+    end
+    if #filetypes == 0 then
+      health.warn(name .. ": no debug configurations use it", {
+        "Add some to require('dap').configurations.<filetype> (see :help dap-configuration)",
+      })
+    end
+  end
+end
+
 function M.check()
   health.start("dapper")
 
@@ -109,6 +157,8 @@ function M.check()
     health.ok("Debug configurations for " .. table.concat(configured, ", "))
   end
 
+  other_debuggers(dap)
+
   health.start("dapper: the program being debugged")
   local session = dap.session()
   if not session then
@@ -117,11 +167,18 @@ function M.check()
   end
   local program = session.config and session.config.program
   if type(program) ~= "string" or program == "" then
-    health.info("The session has no program file to check")
+    health.info(("The session (%s) has no program file to check"):format(session.config.name or session.id))
+    return
+  end
+  health.info(("Debugging %s (%s)"):format(program, session.config.type or "?"))
+  if not vim.uv.fs_stat(program) then
+    health.warn(program .. " does not exist")
     return
   end
   local info = has_debug_info(program)
-  if info == false then
+  if info == nil and vim.fn.executable("readelf") == 1 then -- (an R or Python script, ...)
+    health.info("Not a compiled program: no debug information to check")
+  elseif info == false then
     health.error(program .. " has no debug information: variables and lines cannot be shown", {
       "Build it with -g (and -O0, so that the code follows the lines)",
     })

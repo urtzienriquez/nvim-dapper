@@ -158,6 +158,7 @@ function M.toggle(expr)
   M.save()
   M.draw(buf)
   M.update()
+  util.notify("Pinned " .. expr)
 end
 
 return M

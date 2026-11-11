@@ -147,8 +147,12 @@ function M.send(session)
     end, addresses)
     local result = util.request(session, "setInstructionBreakpoints", { breakpoints = list })
     for i, bp in ipairs(result and result.breakpoints or {}) do
-      if M.breakpoints[addresses[i]] then
-        M.breakpoints[addresses[i]].verified = bp.verified
+      local mine = M.breakpoints[addresses[i]]
+      if mine then
+        if bp.verified == false and mine.verified ~= false then -- (said once, not on each send)
+          util.notify("The debugger rejected the breakpoint at " .. addresses[i], vim.log.levels.WARN)
+        end
+        mine.verified = bp.verified
       end
     end
     require("dapper.views").refresh("disassembly")
@@ -159,8 +163,10 @@ end
 function M.toggle_breakpoint(address, label)
   if M.breakpoints[address] then
     M.breakpoints[address] = nil
+    util.notify("No more breaking at " .. address)
   else
     M.breakpoints[address] = { label = label or "" }
+    util.notify("Breaking at " .. address)
   end
   M.send()
 end
@@ -174,7 +180,7 @@ function M.go(expr)
   end
   local session = require("dap").session()
   if not session then
-    return
+    return util.notify("Not debugging", vim.log.levels.WARN)
   end
   util.run(function()
     local address = expr:match("^0[xX]%x+$") and tonumber(expr:sub(3), 16)
@@ -202,7 +208,7 @@ end
 function M.go_line(path, line)
   local session = require("dap").session()
   if not session then
-    return
+    return util.notify("Not debugging", vim.log.levels.WARN)
   end
   local frame = session.current_frame
   if frame and frame.source and frame.source.path == path and frame.line == line then
@@ -254,6 +260,8 @@ M.keys = {
     function(item)
       if item and item.kind == "instruction" then
         M.toggle_breakpoint(item.address, item.text)
+      elseif item then
+        util.notify("Not an instruction", vim.log.levels.WARN)
       end
     end,
   },

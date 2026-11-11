@@ -35,6 +35,9 @@ M.keys = {
       if item and item.session then
         require("dap").set_session(item.session)
         require("dapper.views").refresh()
+        require("dapper.util").notify(
+          "Current session: " .. (item.session.config.name or ("session " .. item.session.id))
+        )
       end
     end,
   },

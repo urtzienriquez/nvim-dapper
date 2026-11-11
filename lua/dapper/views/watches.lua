@@ -144,6 +144,7 @@ function M.add(expr, at)
     end
     table.insert(M.expressions, math.min(at or (#M.expressions + 1), #M.expressions + 1), expr)
     save()
+    util.notify("Watching " .. expr)
     require("dapper.views").refresh("watches")
   end
 end
@@ -198,9 +199,10 @@ M.keys = vim.list_extend({
       end
       util.run(function()
         local expr = util.input({ prompt = "Watch: ", default = M.expressions[i], completion = COMPLETE })
-        if expr and vim.trim(expr) ~= "" then
+        if expr and vim.trim(expr) ~= "" and vim.trim(expr) ~= M.expressions[i] then
           M.expressions[i] = vim.trim(expr)
           save()
+          util.notify("Watching " .. M.expressions[i])
           refresh()
         end
       end)
@@ -211,9 +213,10 @@ M.keys = vim.list_extend({
     "delete the expression",
     function(item)
       local i = index_of(item)
-      if i then
-        table.remove(M.expressions, i)
+      if i and M.expressions[i] then
+        local expr = table.remove(M.expressions, i)
         save()
+        util.notify("Stopped watching " .. expr)
         refresh()
       end
     end,
