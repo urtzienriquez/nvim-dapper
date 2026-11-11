@@ -302,6 +302,68 @@ describe("views, without a debug session", function()
       dapper.clear_breakpoints()
     end)
 
+    it("d on a selection deletes those watches (in Watches, through the real mapping)", function()
+      local watches = require("dapper.views.watches")
+      for i = #watches.expressions, 1, -1 do
+        table.remove(watches.expressions, i)
+      end
+      for _, expr in ipairs({ "a", "b", "c" }) do
+        watches.add(expr)
+      end
+      dapper.show("watches")
+      for _, win in ipairs(vim.api.nvim_list_wins()) do
+        if vim.api.nvim_win_get_buf(win) == vim.fn.bufnr("dapper://watches") then
+          vim.api.nvim_set_current_win(win)
+        end
+      end
+      vim.wait(1000, function()
+        return #lines("watches") == 3 and lines("watches")[1]:find("a", 1, true) ~= nil
+      end, 10)
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      messages = {}
+      vim.api.nvim_feedkeys("Vjd", "x", false)
+      assert.same({ "c" }, watches.expressions)
+      assert.same({ { "Stopped watching a, b", vim.log.levels.INFO } }, messages)
+      assert.are_not.equal("V", vim.api.nvim_get_mode().mode) -- (Visual mode left)
+    end)
+
+    it("d and t on a selection in Breakpoints", function()
+      local file = vim.fn.tempname() .. ".c"
+      vim.fn.writefile({ "int a;", "int b;", "int c;" }, file)
+      vim.cmd("edit " .. file)
+      for _, line in ipairs({ 1, 2 }) do
+        vim.api.nvim_win_set_cursor(0, { line, 0 })
+        require("dap").toggle_breakpoint()
+      end
+      local lines_ = require("dapper.lines")
+      local function mine()
+        return vim.tbl_map(
+          function(bp)
+            return vim.tbl_extend("force", bp, { kind = "breakpoint" })
+          end,
+          vim.tbl_filter(function(bp)
+            return bp.path == vim.fs.normalize(file)
+          end, lines_.all())
+        )
+      end
+      local view = require("dapper.views").get("breakpoints")
+      local function key(lhs)
+        for _, k in ipairs(view.keys) do
+          if k[1] == lhs then
+            return k
+          end
+        end
+      end
+      key("t").range(mine())
+      assert.equals("Breakpoints: 2 off, 0 on", messages[#messages][1])
+      assert.is_true(vim.iter(mine()):all(function(bp)
+        return bp.disabled == true
+      end))
+      key("d").range(mine())
+      assert.equals("Deleted 2 breakpoints", messages[#messages][1])
+      assert.same({}, mine())
+    end)
+
     it("inline values on and off", function()
       dapper.toggle_virtual_text()
       dapper.toggle_virtual_text()

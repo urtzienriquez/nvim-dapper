@@ -9,7 +9,7 @@ local M = {}
 local function listing(title, keys)
   local lines = { title, "" }
   for _, key in ipairs(keys or {}) do
-    table.insert(lines, ("  %-8s %s"):format(key[1], key[2]))
+    table.insert(lines, ("  %-8s %s"):format(key[1], key[2] .. (key.range and " (also on a selection)" or "")))
   end
   return lines
 end

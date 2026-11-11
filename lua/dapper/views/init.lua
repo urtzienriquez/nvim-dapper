@@ -54,6 +54,25 @@ function M.buffer(name)
       vim.keymap.set("n", key[1], function()
         key[3](canvas.item())
       end, { buffer = buf, nowait = true, desc = view.label .. ": " .. key[2] })
+      if key.range then -- (and on the selected lines: their items, each once)
+        vim.keymap.set("x", key[1], function()
+          local first, last = vim.fn.line("v"), vim.fn.line(".")
+          if first > last then
+            first, last = last, first
+          end
+          api.nvim_feedkeys(api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+          local items, seen = {}, {}
+          local of_buf = canvas.items_of[buf] or {}
+          for line = first, last do
+            local item = of_buf[line]
+            if item and not seen[item] then
+              seen[item] = true
+              table.insert(items, item)
+            end
+          end
+          key.range(items, first, last)
+        end, { buffer = buf, nowait = true, desc = view.label .. ": " .. key[2] .. " (the selected lines)" })
+      end
     end
     bufs[name] = buf
   end

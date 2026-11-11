@@ -222,6 +222,18 @@ function M.keys(refresh)
           util.notify("Not a value: no breaking when it changes", vim.log.levels.WARN)
         end
       end,
+      range = function(items)
+        local list = {}
+        for _, item in ipairs(items) do
+          if item.expr then -- (lines that are no value skipped)
+            table.insert(list, { item.expr, item })
+          end
+        end
+        if #list == 0 then
+          return util.notify("No values selected", vim.log.levels.WARN)
+        end
+        require("dapper.breaks").toggle_changes(list)
+      end,
     },
     {
       "m",

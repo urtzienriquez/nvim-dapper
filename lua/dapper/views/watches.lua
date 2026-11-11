@@ -149,20 +149,25 @@ function M.add(expr, at)
   end
 end
 
---- the index of the expression of the cursor's line (of its top-level line, below it)
+--- the index of the expression of line `line` (of its top-level line, below it), or nil
+local function index_at(line)
+  local items = require("dapper.canvas").items_of[vim.api.nvim_get_current_buf()] or {}
+  if not items[line] then
+    return nil
+  end
+  for l = line, 1, -1 do
+    if items[l] and items[l].index then
+      return items[l].index
+    end
+  end
+end
+
+--- the index of the expression of the cursor's line
 local function index_of(item)
   if not item then
     return nil
   end
-  if item.index then
-    return item.index
-  end
-  local items = require("dapper.canvas").items_of[vim.api.nvim_get_current_buf()] or {}
-  for line = vim.api.nvim_win_get_cursor(0)[1], 1, -1 do
-    if items[line] and items[line].index then
-      return items[line].index
-    end
-  end
+  return item.index or index_at(vim.api.nvim_win_get_cursor(0)[1])
 end
 
 local function refresh()
@@ -219,6 +224,29 @@ M.keys = vim.list_extend({
         util.notify("Stopped watching " .. expr)
         refresh()
       end
+    end,
+    range = function(_, first, last)
+      local indices, seen = {}, {}
+      for line = first, last do
+        local i = index_at(line)
+        if i and M.expressions[i] and not seen[i] then
+          seen[i] = true
+          table.insert(indices, i)
+        end
+      end
+      if #indices == 0 then
+        return
+      end
+      table.sort(indices)
+      local gone = vim.tbl_map(function(i)
+        return M.expressions[i]
+      end, indices)
+      for n = #indices, 1, -1 do -- (from the last: the indices before stay right)
+        table.remove(M.expressions, indices[n])
+      end
+      save()
+      refresh()
+      util.notify("Stopped watching " .. table.concat(gone, ", "))
     end,
   },
 }, tree.keys(refresh))

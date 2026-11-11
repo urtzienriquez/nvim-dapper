@@ -63,32 +63,55 @@ local function sessions_of(type)
   return found
 end
 
+--- flips the filters of `items` (lines of this view); the debugger and the sessions to come told
+local function flip(items)
+  local util = require("dapper.util")
+  local session = require("dap").session()
+  if not session then
+    return util.notify("Not debugging", vim.log.levels.WARN)
+  end
+  local ids = chosen(session)
+  local now_on, now_off = {}, {}
+  for _, item in ipairs(items) do
+    if item.filter then
+      ids = vim.tbl_filter(function(id)
+        return id ~= item.filter.filter
+      end, ids)
+      if item.on then
+        table.insert(now_off, item.filter.label)
+      else
+        table.insert(ids, item.filter.filter)
+        table.insert(now_on, item.filter.label)
+      end
+    end
+  end
+  if #now_on + #now_off == 0 then
+    return
+  end
+  local type = session.config.type
+  require("dap").defaults[type].exception_breakpoints = ids -- (the sessions to come)
+  for _, s in ipairs(sessions_of(type)) do -- (and those now)
+    s:set_exception_breakpoints(ids)
+  end
+  require("dapper.views").refresh("exceptions")
+  local said = {}
+  if #now_on > 0 then
+    table.insert(said, "Stopping on " .. table.concat(now_on, ", "))
+  end
+  if #now_off > 0 then
+    table.insert(said, (#now_on > 0 and "no more on " or "No more stopping on ") .. table.concat(now_off, ", "))
+  end
+  util.notify(table.concat(said, "; "))
+end
+
 M.keys = {
   {
     "<CR>",
     "toggle",
     function(item)
-      local session = require("dap").session()
-      if not session then
-        return require("dapper.util").notify("Not debugging", vim.log.levels.WARN)
-      end
-      if not (item and item.filter) then
-        return
-      end
-      local ids = vim.tbl_filter(function(id)
-        return id ~= item.filter.filter
-      end, chosen(session))
-      if not item.on then
-        table.insert(ids, item.filter.filter)
-      end
-      local type = session.config.type
-      require("dap").defaults[type].exception_breakpoints = ids -- (the sessions to come)
-      for _, s in ipairs(sessions_of(type)) do -- (and those now)
-        s:set_exception_breakpoints(ids)
-      end
-      require("dapper.views").refresh("exceptions")
-      require("dapper.util").notify((item.on and "No more stopping on " or "Stopping on ") .. item.filter.label)
+      flip({ item })
     end,
+    range = flip,
   },
 }
 

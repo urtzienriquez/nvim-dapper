@@ -160,15 +160,22 @@ function M.send(session)
   end)
 end
 
-function M.toggle_breakpoint(address, label)
+--- quiet: without saying so; batch: without telling the debugger yet (M.send() does, after)
+function M.toggle_breakpoint(address, label, quiet, batch)
   if M.breakpoints[address] then
     M.breakpoints[address] = nil
-    util.notify("No more breaking at " .. address)
+    if not quiet then
+      util.notify("No more breaking at " .. address)
+    end
   else
     M.breakpoints[address] = { label = label or "" }
-    util.notify("Breaking at " .. address)
+    if not quiet then
+      util.notify("Breaking at " .. address)
+    end
   end
-  M.send()
+  if not batch then
+    M.send()
+  end
 end
 
 --- goes to `expr` (a function, an address, an expression); nil: back to the current instruction
@@ -263,6 +270,24 @@ M.keys = {
       elseif item then
         util.notify("Not an instruction", vim.log.levels.WARN)
       end
+    end,
+    range = function(items)
+      local on, off = 0, 0
+      for _, item in ipairs(items) do
+        if item.kind == "instruction" then
+          if M.breakpoints[item.address] then
+            off = off + 1
+          else
+            on = on + 1
+          end
+          M.toggle_breakpoint(item.address, item.text, true, true)
+        end
+      end
+      if on + off == 0 then
+        return util.notify("No instructions selected", vim.log.levels.WARN)
+      end
+      M.send()
+      util.notify(("Instruction breakpoints: %d on, %d off"):format(on, off))
     end,
   },
   {

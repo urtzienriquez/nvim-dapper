@@ -72,8 +72,8 @@ function M.changed(bp)
   end
 end
 
---- breaks on function `name` (or no more, if it did)
-function M.toggle_function(name)
+--- breaks on function `name` (or no more, if it did); quiet: without saying so
+function M.toggle_function(name, quiet)
   name = vim.trim(name or "")
   if name == "" then
     return
@@ -86,10 +86,14 @@ function M.toggle_function(name)
   end
   if found then
     table.remove(M.functions, found)
-    util.notify("No more breaking on " .. name)
+    if not quiet then
+      util.notify("No more breaking on " .. name)
+    end
   else
     table.insert(M.functions, { name = name })
-    util.notify("Breaking on " .. name)
+    if not quiet then
+      util.notify("Breaking on " .. name)
+    end
   end
   save_functions()
   M.send_functions()
@@ -113,54 +117,98 @@ local function send_data(session)
   util.request(session, "setDataBreakpoints", { breakpoints = list })
 end
 
---- breaks when `expr` changes (item: its variable, for debuggers with data breakpoints), or no
---- more, if it did
-function M.toggle_change(expr, item)
+-- Toggles breaking when `expr` changes, in a coroutine (it waits for the debugger): "on", "off",
+-- or nil (it could not: said why). Says what it did, unless quiet.
+local function change(session, expr, item, quiet)
+  for i, c in ipairs(M.changes) do
+    if c.expr == expr then -- (it did: no more)
+      table.remove(M.changes, i)
+      if gdb_like(session) then
+        util.request(session, "evaluate", { expression = "delete " .. c.id, context = "repl" })
+      else
+        send_data(session)
+      end
+      if not quiet then
+        util.notify("No more breaking when " .. expr .. " changes")
+      end
+      return "off"
+    end
+  end
+  local entry = { expr = expr }
+  if gdb_like(session) then
+    local result, err = util.evaluate(session, "watch -location " .. expr, "repl")
+    local id = result and result.result:match("atchpoint (%d+)")
+    if not id then
+      util.notify("Cannot watch " .. expr .. ": " .. tostring(err or (result and result.result)), vim.log.levels.WARN)
+      return nil
+    end
+    entry.id = id
+  else
+    local info = util.request(session, "dataBreakpointInfo", {
+      name = item and item.var and item.var.name or expr,
+      variablesReference = item and item.ref,
+      frameId = session.current_frame and session.current_frame.id,
+    })
+    if not (info and info.dataId) then
+      util.notify("This debugger cannot watch " .. expr, vim.log.levels.WARN)
+      return nil
+    end
+    entry.id = info.dataId
+  end
+  table.insert(M.changes, entry)
+  if not gdb_like(session) then
+    send_data(session)
+  end
+  if not quiet then
+    util.notify("Breaking when " .. expr .. " changes")
+  end
+  return "on"
+end
+
+local function stopped_session()
   local session = require("dap").session()
   if not (session and session.stopped_thread_id) then
-    return util.notify("The program has to be stopped, to watch a value", vim.log.levels.WARN)
+    util.notify("The program has to be stopped, to watch a value", vim.log.levels.WARN)
+    return nil
+  end
+  return session
+end
+
+--- breaks when `expr` changes (item: its variable, for debuggers with data breakpoints), or no
+--- more, if it did. quiet: without saying so (only what goes wrong is said)
+function M.toggle_change(expr, item, quiet)
+  local session = stopped_session()
+  if session then
+    util.run(function()
+      change(session, expr, item, quiet)
+      refresh()
+    end)
+  end
+end
+
+--- the same for several: `list` of { expr, item }, one after another; said once, at the end
+function M.toggle_changes(list)
+  local session = stopped_session()
+  if not session or #list == 0 then
+    return
   end
   util.run(function()
-    for i, c in ipairs(M.changes) do
-      if c.expr == expr then -- (it did: no more)
-        table.remove(M.changes, i)
-        if gdb_like(session) then
-          util.request(session, "evaluate", { expression = "delete " .. c.id, context = "repl" })
-        else
-          send_data(session)
-        end
-        util.notify("No more breaking when " .. expr .. " changes")
-        return refresh()
-      end
+    local on, off = {}, {}
+    for _, entry in ipairs(list) do
+      local did = change(session, entry[1], entry[2], true)
+      table.insert(did == "on" and on or did == "off" and off or {}, entry[1])
     end
-    local entry = { expr = expr }
-    if gdb_like(session) then
-      local result, err = util.evaluate(session, "watch -location " .. expr, "repl")
-      local id = result and result.result:match("atchpoint (%d+)")
-      if not id then
-        return util.notify(
-          "Cannot watch " .. expr .. ": " .. tostring(err or (result and result.result)),
-          vim.log.levels.WARN
-        )
-      end
-      entry.id = id
-    else
-      local info = util.request(session, "dataBreakpointInfo", {
-        name = item and item.var and item.var.name or expr,
-        variablesReference = item and item.ref,
-        frameId = session.current_frame and session.current_frame.id,
-      })
-      if not (info and info.dataId) then
-        return util.notify("This debugger cannot watch " .. expr, vim.log.levels.WARN)
-      end
-      entry.id = info.dataId
-    end
-    table.insert(M.changes, entry)
-    if not gdb_like(session) then
-      send_data(session)
-    end
-    util.notify("Breaking when " .. expr .. " changes")
     refresh()
+    local said = {}
+    if #on > 0 then
+      table.insert(said, "Breaking when " .. table.concat(on, ", ") .. (#on == 1 and " changes" or " change"))
+    end
+    if #off > 0 then
+      table.insert(said, (#on > 0 and "no more when " or "No more breaking when ") .. table.concat(off, ", "))
+    end
+    if #said > 0 then
+      util.notify(table.concat(said, "; "))
+    end
   end)
 end
 

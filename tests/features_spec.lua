@@ -173,6 +173,34 @@ describe("features", function()
     end))
   end)
 
+  it("x on a selection breaks when any of those values changes (and no more, again)", function()
+    local breaks = require("dapper.breaks")
+    local x
+    for _, key in ipairs(require("dapper.views").get("watches").keys) do
+      if key[1] == "x" then
+        x = key
+      end
+    end
+    local said, notify = {}, vim.notify
+    vim.notify = function(msg)
+      table.insert(said, msg)
+    end
+    local items = { { kind = "variable", expr = "n" }, { kind = "expression" }, { kind = "variable", expr = "total" } }
+    -- (the summary comes once the debugger answered: waited for; the previous test's may come too)
+    local function told(msg)
+      return wait(function()
+        return vim.tbl_contains(said, msg)
+      end)
+    end
+    x.range(items)
+    local on = told("Breaking when n, total change") and #breaks.changes == 2
+    x.range(items)
+    local off = told("No more breaking when n, total") and #breaks.changes == 0
+    vim.notify = notify
+    assert.is_true(on, vim.inspect(said))
+    assert.is_true(off, vim.inspect(said))
+  end)
+
   it("breaks on a function, by name", function()
     dapper.break_on("twice")
     assert.is_true(wait(function()

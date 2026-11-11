@@ -187,6 +187,12 @@ And:
                  the frames of no interest (library code).
   Threads        F: invert the filter.
 
+On a visual selection (|linewise-visual|): d deletes the watches or
+breakpoints selected; in Breakpoints t turns them off (or on); in Exceptions
+<CR> toggles them; x breaks when any of the values changes (Watches,
+Scopes), or on the instructions (Disassembly).
+g? marks the keys that work on a selection.
+
 ==============================================================================
 COMMANDS                                                             *:Dapper*
 

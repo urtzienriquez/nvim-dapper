@@ -132,6 +132,10 @@ And: Watches `i` / `a` add above / below, `e` edit; `[[` the parent of a value; 
 shows it (on a line, or a function's) without leaving; Call stack `o` goes to the frame's line, `t` hides library frames;
 Threads `F` inverts the filter.
 
+On a visual selection (`V`, then move): `d` deletes the watches or breakpoints selected,
+Breakpoints `t` turns them off (or on), Exceptions `<CR>` toggles them, `x` breaks when any of
+the values changes (Watches, Scopes) or on the instructions (Disassembly). `g?` marks the keys that work on a selection.
+
 ## Commands
 
 `:Dapper` alone lists the actions available now, to pick from, with the keys you mapped to

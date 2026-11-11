@@ -144,6 +144,32 @@ M.keys = {
         util.notify("Deleted the breakpoint at " .. where(item))
       end
     end,
+    range = function(items)
+      local count, instructions = 0, false
+      for _, item in ipairs(items) do
+        count = count + 1
+        if item.address then
+          require("dapper.views.disassembly").toggle_breakpoint(item.address, nil, true, true)
+          instructions = true
+        elseif item.kind == "function" then
+          require("dapper.breaks").toggle_function(item.name, true)
+        elseif item.kind == "change" then
+          require("dapper.breaks").toggle_change(item.expr, nil, true)
+        elseif item.kind == "breakpoint" then
+          require("dapper.lines").delete(item)
+        else
+          count = count - 1
+        end
+      end
+      if count == 0 then
+        return
+      end
+      if instructions then
+        require("dapper.views.disassembly").send()
+      end
+      require("dapper.views").refresh("breakpoints")
+      util.notify(("Deleted %d breakpoint%s"):format(count, count == 1 and "" or "s"))
+    end,
   },
   {
     "t",
@@ -157,6 +183,24 @@ M.keys = {
       elseif item then
         util.notify("Only breakpoints on lines can be turned off (d deletes this one)", vim.log.levels.WARN)
       end
+    end,
+    range = function(items)
+      local on, off = 0, 0
+      for _, item in ipairs(items) do
+        if item.kind == "breakpoint" then
+          if item.disabled then
+            on = on + 1
+          else
+            off = off + 1
+          end
+          require("dapper.lines").toggle(item)
+        end
+      end
+      if on + off == 0 then
+        return util.notify("Only breakpoints on lines can be turned off", vim.log.levels.WARN)
+      end
+      require("dapper.views").refresh("breakpoints")
+      util.notify(("Breakpoints: %d off, %d on"):format(off, on))
     end,
   },
 }
