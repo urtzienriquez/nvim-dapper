@@ -10,6 +10,7 @@ jobs:
   test:
     name: Neovim ${{ matrix.neovim }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     strategy:
       fail-fast: false
@@ -28,8 +29,18 @@ jobs:
           neovim: true
           version: ${{ matrix.neovim }}
 
+      # (retried: the runners' network to Ubuntu's mirrors fails now and then; gdb missing still
+      # fails the run, else the debugging tests would be skipped without anyone noticing)
       - name: Install gcc and gdb (for the debugging tests)
-        run: sudo apt-get update && sudo apt-get install -y gcc gdb
+        timeout-minutes: 10
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -o Acquire::Retries=3 &&
+              sudo apt-get install -y -o Acquire::Retries=3 gcc gdb && exit 0
+            echo "apt failed (attempt $i), retrying in 30s"
+            sleep 30
+          done
+          exit 1
 
       - name: Run test suite
         run: scripts/test.sh
